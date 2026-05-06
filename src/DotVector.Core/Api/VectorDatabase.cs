@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using DotVector.Catalog;
 using DotVector.Exceptions;
+using DotVector.Format;
+using DotVector.Index.Flat;
 using DotVector.Index.Hnsw;
 using DotVector.Index.Ivf;
 using DotVector.IO;
@@ -78,17 +80,52 @@ public sealed class VectorDatabase : IDisposable
     private void RestoreCollectionTyped<TKey>(CatalogEntry entry) where TKey : notnull
     {
         var collection = new Collection<TKey>(entry.Name, entry.Dimensions, entry.Metric, entry.IndexKind);
-        // 先回放 WAL（不附加 sink，避免回写）
-        ReplayWalInto(collection, entry);
-        // 再附加 sink，后续操作走 WAL
-        collection.AttachWriteSink(_persistent!.CreateSink<TKey>(entry.CollectionId));
+        // 1. 先加载已落盘的 Segment（M10：仅 Flat）
+        CollectionManifest manifest = _persistent!.GetManifest(entry.CollectionId);
+        if (entry.IndexKind == IndexKind.Flat)
+        {
+            LoadSegmentsInto(collection, entry);
+        }
+        // 2. 回放 manifest 之后的 WAL（不附加 sink，避免回写）
+        ReplayWalInto(collection, entry, (long)manifest.LastCoveredWalSequence);
+        // 3. 关联持久化与写入 sink
+        collection.AttachPersistence(
+            _persistent,
+            entry.CollectionId,
+            _persistent.CreateSink<TKey>(entry.CollectionId));
         _collections[entry.Name] = collection;
     }
 
-    private void ReplayWalInto<TKey>(Collection<TKey> collection, CatalogEntry entry) where TKey : notnull
+    private void LoadSegmentsInto<TKey>(Collection<TKey> collection, CatalogEntry entry) where TKey : notnull
     {
         if (_persistent is null) return;
-        foreach (WalRecord record in _persistent.ReadWalFor(entry.CollectionId))
+        int totalRestored = 0;
+        foreach (SegmentReader<TKey> seg in _persistent.LoadSegments<TKey>(entry.CollectionId))
+        {
+            using (seg)
+            {
+                if (seg.Header.VectorCount == 0) { continue; }
+                float[] vectors = seg.ReadAllVectors();
+                int dim = entry.Dimensions;
+                int n = seg.Keys.Count;
+                var batch = new List<VectorRecord<TKey>>(n);
+                for (int i = 0; i < n; i++)
+                {
+                    float[] v = new float[dim];
+                    Array.Copy(vectors, (long)i * dim, v, 0, dim);
+                    batch.Add(new VectorRecord<TKey>(seg.Keys[i], v));
+                }
+                collection.InsertBatch(batch);
+                totalRestored += n;
+            }
+        }
+        _persistent.NotifyRestoredRowCount(entry.CollectionId, totalRestored);
+    }
+
+    private void ReplayWalInto<TKey>(Collection<TKey> collection, CatalogEntry entry, long minWalSeqExclusive) where TKey : notnull
+    {
+        if (_persistent is null) return;
+        foreach (WalRecord record in _persistent.ReadWalFor(entry.CollectionId, minWalSeqExclusive))
         {
             ReadOnlySpan<byte> body = record.Body;
             SpanReader reader = new(body);
@@ -230,7 +267,7 @@ public sealed class VectorDatabase : IDisposable
             try
             {
                 Guid id = _persistent.RegisterCollection<TKey>(name, dimensions, metric, indexKind);
-                collection.AttachWriteSink(_persistent.CreateSink<TKey>(id));
+                collection.AttachPersistence(_persistent, id, _persistent.CreateSink<TKey>(id));
             }
             catch
             {
@@ -263,6 +300,38 @@ public sealed class VectorDatabase : IDisposable
                 $"集合 '{name}' 的主键类型与请求的 {typeof(TKey).FullName} 不一致。");
         }
         return typed;
+    }
+
+    /// <summary>
+    /// 把所有集合的当前内存状态刷成新 Segment 并旋转 WAL（M10）。
+    /// </summary>
+    /// <remarks>仅对底层为 <see cref="FlatIndex{TKey}"/> 的集合生效；其它索引会被跳过。</remarks>
+    public void Flush()
+    {
+        ThrowIfDisposed();
+        if (_persistent is null) { return; }
+        foreach (KeyValuePair<string, IDisposable> kv in _collections)
+        {
+            if (kv.Value is IPersistableCollection p)
+            {
+                try { p.Flush(); }
+                catch (NotSupportedException) { /* 非 Flat 索引在 M10 跳过 */ }
+            }
+        }
+    }
+
+    /// <summary>合并所有集合的多个 Segment 为单个 Segment（M10）。</summary>
+    public void Compact()
+    {
+        ThrowIfDisposed();
+        if (_persistent is null) { return; }
+        foreach (KeyValuePair<string, IDisposable> kv in _collections)
+        {
+            if (kv.Value is IPersistableCollection p)
+            {
+                p.Compact();
+            }
+        }
     }
 
     /// <summary>

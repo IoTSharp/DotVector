@@ -8,6 +8,28 @@
 
 ### Added
 
+- PR #M10：M10 — Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续）
+  - `src/DotVector.Core/Catalog/CollectionManifest.cs`：每集合 manifest（`NextSegmentSequence` / `LastCoveredWalSequence`），原子写入 `manifest.bin`
+  - `src/DotVector.Core/Storage/SegmentWriter.cs`：原子 Segment 写入（写 `.tmp` 目录 → `Directory.Move`）
+    - 输出 `seg.hdr`（`SegmentHeader` unmanaged struct，little-endian）+ `keys.bin`（`KeyCodec` 序列化）+ `vectors.bin`（float32 行优先）
+  - `src/DotVector.Core/Storage/SegmentReader.cs`：`MemoryMappedFile` + `MemoryMappedViewAccessor.ReadArray<float>` 单拷贝、safe-only 读取（AGENTS.md M0–M7 禁 `unsafe` 仍然适用）
+  - `src/DotVector.Core/Storage/PersistentDirectory.cs`：
+    - `FlushCollection<TKey>(Guid, FlatIndex<TKey>)`：旋转当前 WAL → `index.SnapshotSince(prevFlushedRows)` 取增量 → 写 Segment → 更新 manifest（`LastCoveredWalSequence`）→ 调用 `TryTrimWal` 删除已覆盖的 WAL 段
+    - `CompactCollection<TKey>(Guid)`：合并所有现存 Segment 为单个新 Segment，原子提交 + 删除旧 Segment
+    - `NotifyRestoredRowCount`：恢复完成后告知已加载行数，避免下次 Flush 重复写入
+  - `src/DotVector.Core/Index/Flat/FlatIndex.cs`：新增 `SnapshotSince(int startRow, ...)` 增量快照 API（基于 `CollectionsMarshal.AsSpan`，零额外分配）
+  - `src/DotVector.Core/Api/VectorDatabase.cs`：
+    - 公开 `Flush()` / `Compact()` API
+    - `LoadSegmentsInto` 在恢复时累加行数并调用 `NotifyRestoredRowCount`
+    - 注册集合时正确调用 `AttachPersistence`（修复此前 `collections/` 目录不创建的 bug）
+  - `tests/DotVector.Core.Tests/Persistence/`：5 个新增测试文件
+    - `SegmentFlushTests`：Flush 后 segment + manifest 创建，重启后向量检索可用
+    - `CompactionTests`：3 次 Flush 累积 3 个 Segment → Compact 合并为 1 个 → 重启后 5 条数据完整
+    - `MmapSegmentReaderTests`：SegmentWriter round-trip + mmap 读取一致性
+    - `WalTrimTests`：部分 Flush 保留未 flush 集合的 WAL；重复 Flush 裁剪旧 WAL
+    - `CrashRecoveryTests`：遗留 `seg-*.tmp` 目录在重新打开时被忽略
+  - 全部 178 个测试通过（DotVector.Core.Tests 147 + DotVector.Accuracy.Tests 17 + DotVector.Tests 14）
+
 - PR #M6：M6 — 标量过滤（Payload Filter）
   - `src/DotVector.Core/Query/Filter.cs`：reflection-free Filter AST，AOT 友好
     - 公开静态工厂：`Eq` / `Ne` / `Range`（支持 inclusive/exclusive 上下界）/ `Exists` / `Missing` / `And` / `Or` / `Not`

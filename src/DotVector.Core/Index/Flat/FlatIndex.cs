@@ -292,6 +292,66 @@ public sealed class FlatIndex<TKey> : IIndex<TKey>, IDisposable
         finally { _lock.ExitReadLock(); }
     }
 
+    /// <summary>
+    /// 在读锁保护下生成索引内当前所有键和向量数据的快照副本。
+    /// 用于 <see cref="Storage"/> 层的 Segment flush。
+    /// </summary>
+    /// <param name="keys">复制后的键列表（按行号顺序）。</param>
+    /// <param name="vectors">行优先打包的向量副本，长度 = <c>keys.Count × Dimensions</c>。</param>
+    public void Snapshot(out List<TKey> keys, out float[] vectors)
+    {
+        ThrowIfDisposed();
+        _lock.EnterReadLock();
+        try
+        {
+            keys = new List<TKey>(_keys);
+            vectors = _vectors.ToArray();
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// 在读锁保护下生成从 <paramref name="startRow"/> 起的增量快照副本（用于 Segment flush 的 delta）。
+    /// 同时返回当前总行数，调用方下次 flush 时可作为新的 <paramref name="startRow"/>。
+    /// </summary>
+    /// <param name="startRow">起始行号（包含），通常是上次 Snapshot 后的 <c>endRowExclusive</c>。</param>
+    /// <param name="keys">该区间内的键副本（按行号顺序）。</param>
+    /// <param name="vectors">行优先打包的向量副本。</param>
+    /// <param name="endRowExclusive">本次快照截止后的总行数（即下次的 <c>startRow</c>）。</param>
+    public void SnapshotSince(int startRow, out List<TKey> keys, out float[] vectors, out int endRowExclusive)
+    {
+        ThrowIfDisposed();
+        ArgumentOutOfRangeException.ThrowIfNegative(startRow);
+        _lock.EnterReadLock();
+        try
+        {
+            int total = _keys.Count;
+            if (startRow > total)
+            {
+                throw new ArgumentOutOfRangeException(nameof(startRow),
+                    $"startRow ({startRow}) 超过当前行数 ({total})。");
+            }
+            int n = total - startRow;
+            keys = new List<TKey>(n);
+            for (int i = startRow; i < total; i++) { keys.Add(_keys[i]); }
+            vectors = new float[(long)n * _dimensions];
+            if (n > 0)
+            {
+                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_vectors)
+                    .Slice(startRow * _dimensions, n * _dimensions)
+                    .CopyTo(vectors);
+            }
+            endRowExclusive = total;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {

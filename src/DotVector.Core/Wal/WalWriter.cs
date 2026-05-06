@@ -16,29 +16,52 @@ namespace DotVector.Wal;
 /// </remarks>
 internal sealed class WalWriter : IDisposable
 {
-    private readonly FileStream _stream;
     private readonly object _lock = new();
+    private FileStream _stream;
+    private bool _disposed;
 
     /// <summary>当前 WAL 文件路径。</summary>
-    public string FilePath { get; }
+    public string FilePath { get; private set; }
 
     /// <summary>使用指定文件路径打开 WAL 写入器（追加模式）。</summary>
     public WalWriter(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
         FilePath = filePath;
+        _stream = OpenAppend(filePath);
+    }
+
+    private static FileStream OpenAppend(string filePath)
+    {
         string? dir = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(dir))
         {
             Directory.CreateDirectory(dir);
         }
-        _stream = new FileStream(
+        return new FileStream(
             filePath,
             FileMode.Append,
             FileAccess.Write,
             FileShare.Read,
             bufferSize: 4096,
             useAsync: false);
+    }
+
+    /// <summary>
+    /// 切换到一个新的 WAL 文件：先 flush + 关闭当前文件，再以追加模式打开 <paramref name="newPath"/>。
+    /// 调用方应在外部串行化 Rotate 与新写入，避免争用。
+    /// </summary>
+    public void Rotate(string newPath)
+    {
+        ArgumentNullException.ThrowIfNull(newPath);
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _stream.Flush(flushToDisk: true);
+            _stream.Dispose();
+            _stream = OpenAppend(newPath);
+            FilePath = newPath;
+        }
     }
 
     /// <summary>追加 Insert 记录。</summary>
@@ -113,6 +136,8 @@ internal sealed class WalWriter : IDisposable
     {
         lock (_lock)
         {
+            if (_disposed) { return; }
+            _disposed = true;
             _stream.Flush(flushToDisk: true);
             _stream.Dispose();
         }

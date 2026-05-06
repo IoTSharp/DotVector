@@ -19,12 +19,14 @@ namespace DotVector.Api;
 /// M3 起：可选用 <see cref="HnswIndex{TKey}"/>（图索引近似检索，召回率 ≥ 0.95）。
 /// M4 起：可选用 <see cref="IvfFlatIndex{TKey}"/> / <see cref="IvfPqIndex{TKey}"/>（倒排聚类 + 乘积量化）。
 /// </remarks>
-public sealed class Collection<TKey> : IDisposable
+public sealed class Collection<TKey> : IDisposable, IPersistableCollection
     where TKey : notnull
 {
     private readonly IIndex<TKey> _index;
     private readonly ConcurrentDictionary<TKey, IReadOnlyDictionary<string, object?>> _payloads = new();
     private IWriteSink<TKey>? _writeSink;
+    private PersistentDirectory? _persistent;
+    private Guid _collectionId;
     private bool _disposed;
 
     /// <summary>
@@ -66,6 +68,18 @@ public sealed class Collection<TKey> : IDisposable
     /// 会在修改索引之前先通知 sink。回放期间应保持为 <see langword="null"/> 以避免重复写 WAL。
     /// </summary>
     internal void AttachWriteSink(IWriteSink<TKey>? sink) => _writeSink = sink;
+
+    /// <summary>
+    /// 关联持久化目录与本集合的 ID，并设置写入观察者。
+    /// 设置后，<see cref="Flush"/> / <see cref="Compact"/> 才有效；
+    /// 写入操作会先通知 sink 写 WAL，再变更索引。
+    /// </summary>
+    internal void AttachPersistence(PersistentDirectory? persistent, Guid collectionId, IWriteSink<TKey>? sink)
+    {
+        _persistent = persistent;
+        _collectionId = collectionId;
+        _writeSink = sink;
+    }
 
     /// <summary>集合名称。</summary>
     public string Name { get; }
@@ -279,6 +293,37 @@ public sealed class Collection<TKey> : IDisposable
         {
             pool.Return(buffer, clearArray: true);
         }
+    }
+
+    /// <summary>
+    /// 把当前内存索引快照刷入新 Segment，并旋转 WAL（M10）。
+    /// 仅当集合已通过 <see cref="DotVector.Api.VectorDatabase"/> 关联到持久化目录、
+    /// 且使用 <see cref="IndexKind.Flat"/> 索引时才有效。
+    /// </summary>
+    /// <exception cref="NotSupportedException">底层索引不是 <see cref="FlatIndex{TKey}"/>（M10 只支持 Flat）。</exception>
+    public void Flush()
+    {
+        ThrowIfDisposed();
+        if (_persistent is null) { return; }
+        if (_index is FlatIndex<TKey> flat)
+        {
+            _persistent.FlushCollection(_collectionId, flat);
+        }
+        else
+        {
+            throw new NotSupportedException("Flush 当前仅支持 Flat 索引（M10）；HNSW / IVF 持久化将在后续 Milestone 提供。");
+        }
+    }
+
+    /// <summary>
+    /// 合并集合的所有 Segment 为单个 Segment（M10）。
+    /// 仅当集合已通过 <see cref="DotVector.Api.VectorDatabase"/> 关联到持久化目录时才有效。
+    /// </summary>
+    public void Compact()
+    {
+        ThrowIfDisposed();
+        if (_persistent is null) { return; }
+        _persistent.CompactCollection<TKey>(_collectionId);
     }
 
     /// <inheritdoc />

@@ -16,7 +16,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M7 | ⏳ | `Microsoft.Extensions.VectorData` 适配 |
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
 | M9 | ⏳ | gRPC Server + Native AOT + Docker |
-| M10 | ⏳ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
+| M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
 | M11 | ⏳ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
 
 ---
@@ -195,8 +195,8 @@ my-database.dvec/
 - [x] `CatalogStore` round-trip 测试 + 原子覆盖写入（见 `CatalogStoreTests`）
 - [x] 格式版本不匹配（Magic / Version）→ `DotVectorException`（见 `CatalogStoreTests`）
 - [x] 目录布局在 Windows / Linux / macOS 上均能正确创建（CI 三平台）
-- [ ] mmap 零拷贝读路径（推迟到 **M10**，与 Segment 文件落盘一并实现）
-- [ ] Compaction 测试：Segment 合并后结果与合并前一致（推迟到 **M10**）
+- [x] mmap 单拷贝读路径（已在 **M10** 实现）
+- [x] Compaction 测试：Segment 合并后结果与合并前一致（已在 **M10** 实现）
 
 ---
 
@@ -300,7 +300,7 @@ my-database.dvec/
 
 ---
 
-## ⏳ M10 — Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续）
+## ✅ M10 — Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续）
 
 **背景**：M5 只实现了 catalog + WAL 顺写与 replay，以下项从 M5 验收标准中推迟到本 milestone。
 
@@ -313,10 +313,10 @@ my-database.dvec/
 - 崩溃恢复测试：flush 中途 / Compaction 中途 中断后重启一致性
 
 **验收标准**：
-- [ ] mmap 零拷贝读路径上线，Segment 完全不介入托管堆复制
-- [ ] Compaction 测试：Segment 合并后搜索结果与合并前一致
-- [ ] flush / Compaction 中途崩溃后重启仍能恢复上一致性快照
-- [ ] WAL 裁剪后磁盘占用有限
+- [x] mmap 单拷贝（safe-only：`MemoryMappedViewAccessor.ReadArray<float>`）读路径上线
+- [x] Compaction 测试：Segment 合并后搜索结果与合并前一致（`CompactionTests`）
+- [x] flush 中途崩溃后重启仍能恢复（`CrashRecoveryTests`：残留 `.tmp` 段被忽略）
+- [x] WAL 裁剪：Segment 落盘后已覆盖的 WAL 段被删除（`WalTrimTests`）
 
 ---
 

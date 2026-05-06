@@ -1,6 +1,9 @@
+using System.Globalization;
 using DotVector.Api;
 using DotVector.Catalog;
 using DotVector.Exceptions;
+using DotVector.Format;
+using DotVector.Index.Flat;
 using DotVector.IO;
 using DotVector.Model;
 using DotVector.Wal;
@@ -8,37 +11,41 @@ using DotVector.Wal;
 namespace DotVector.Storage;
 
 /// <summary>
-/// 持久化目录管理器：负责打开/创建 <c>.dvec/</c>，加载 catalog.bin，
-/// 维护单个共享的 WAL 写入器，并向各 <see cref="Collection{TKey}"/> 注入
-/// <see cref="IWriteSink{TKey}"/>，把所有变更先落盘 WAL 再写入内存索引。
+/// 持久化目录管理器：负责打开/创建 <c>.dvec/</c>，加载 catalog.bin 与各集合
+/// <c>manifest.bin</c>，维护单个共享的 WAL 写入器，并向各 <see cref="Collection{TKey}"/>
+/// 注入 <see cref="IWriteSink{TKey}"/>，把所有变更先落盘 WAL 再写入内存索引。
 /// </summary>
 /// <remarks>
-/// 当前实现：
+/// <para>M10 之后的能力：</para>
 /// <list type="bullet">
-///   <item>单个数据库目录共享一个 WAL 文件 <c>wal/wal-000001.log</c>。</item>
-///   <item>启动时回放 WAL 中所有有效记录到对应集合。</item>
-///   <item>关闭时执行 <see cref="WalWriter.Flush"/> 并释放句柄。</item>
+///   <item>WAL 文件按序列号命名 <c>wal/wal-{seq:D6}.log</c>；启动时扫描目录找出最大 seq。</item>
+///   <item>每个集合在 <c>collections/{id:N}/manifest.bin</c> 维护
+///         <see cref="CollectionManifest"/>（下一个 Segment 序列号 + 已覆盖的 WAL 序列号）。</item>
+///   <item>Flush：旋转 WAL 到下一个序列号，对索引快照后写入新 Segment 目录，更新 manifest，
+///         尝试裁剪所有集合都已覆盖的旧 WAL。</item>
+///   <item>Compact：把集合所有 Segment 合并为一个新 Segment，删除旧目录。</item>
 /// </list>
-/// 不支持 WAL 滚动 / Segment 落盘 / 压缩——后续 Milestone 处理。
 /// </remarks>
 internal sealed class PersistentDirectory : IDisposable
 {
     private readonly string _root;
-    private readonly string _walPath;
     private readonly object _lock = new();
     private readonly List<CatalogEntry> _entries;
     private readonly Dictionary<Guid, IDisposable> _sinks = new();
+    private readonly Dictionary<Guid, CollectionManifest> _manifests = new();
+    private readonly Dictionary<Guid, int> _flushedRows = new();
+    private long _currentWalSeq;
     private WalWriter? _walWriter;
     private bool _disposed;
 
     /// <summary>已加载的集合元数据列表。</summary>
     public IReadOnlyList<CatalogEntry> Entries => _entries;
 
-    private PersistentDirectory(string root, string walPath, List<CatalogEntry> entries)
+    private PersistentDirectory(string root, List<CatalogEntry> entries, long currentWalSeq)
     {
         _root = root;
-        _walPath = walPath;
         _entries = entries;
+        _currentWalSeq = currentWalSeq;
     }
 
     /// <summary>打开或创建指定的 <c>.dvec/</c> 目录。</summary>
@@ -51,16 +58,56 @@ internal sealed class PersistentDirectory : IDisposable
 
         string catalogPath = Path.Combine(directoryPath, "catalog.bin");
         var entries = new List<CatalogEntry>(CatalogStore.Read(catalogPath));
-        string walPath = Path.Combine(directoryPath, "wal", "wal-000001.log");
-        return new PersistentDirectory(directoryPath, walPath, entries);
+
+        // 扫描已有 wal-*.log，找出最大序列号；若无则从 1 开始。
+        long maxSeq = 0;
+        string walDir = Path.Combine(directoryPath, "wal");
+        foreach (string file in Directory.EnumerateFiles(walDir, "wal-*.log"))
+        {
+            long seq = TryParseWalSeq(Path.GetFileName(file));
+            if (seq > maxSeq) { maxSeq = seq; }
+        }
+        long currentSeq = maxSeq == 0 ? 1 : maxSeq;
+
+        var pd = new PersistentDirectory(directoryPath, entries, currentSeq);
+        // 加载各集合 manifest
+        foreach (CatalogEntry e in entries)
+        {
+            pd._manifests[e.CollectionId] = CollectionManifestStore.Read(pd.GetManifestPath(e.CollectionId));
+        }
+        return pd;
     }
+
+    /// <summary>解析 "wal-{N:D6}.log" 中的序列号；不匹配返回 0。</summary>
+    private static long TryParseWalSeq(string fileName)
+    {
+        if (!fileName.StartsWith("wal-", StringComparison.Ordinal) ||
+            !fileName.EndsWith(".log", StringComparison.Ordinal))
+        {
+            return 0;
+        }
+        ReadOnlySpan<char> mid = fileName.AsSpan(4, fileName.Length - 4 - 4);
+        return long.TryParse(mid, NumberStyles.None, CultureInfo.InvariantCulture, out long seq) ? seq : 0;
+    }
+
+    private string GetWalPath(long seq)
+        => Path.Combine(_root, "wal", $"wal-{seq:D6}.log");
+
+    private string GetCollectionDir(Guid id)
+        => Path.Combine(_root, "collections", id.ToString("N"));
+
+    private string GetManifestPath(Guid id)
+        => Path.Combine(GetCollectionDir(id), "manifest.bin");
+
+    private string GetSegmentsDir(Guid id)
+        => Path.Combine(GetCollectionDir(id), "segments");
+
+    private string GetSegmentDir(Guid id, long segSeq)
+        => Path.Combine(GetSegmentsDir(id), $"seg-{segSeq:D6}");
 
     private WalWriter EnsureWalWriter()
     {
-        if (_walWriter is null)
-        {
-            _walWriter = new WalWriter(_walPath);
-        }
+        _walWriter ??= new WalWriter(GetWalPath(_currentWalSeq));
         return _walWriter;
     }
 
@@ -89,6 +136,8 @@ internal sealed class PersistentDirectory : IDisposable
             };
             _entries.Add(entry);
             PersistCatalog();
+            // 初始化 manifest（默认值，先不写盘 — 第一次 flush 时再持久化）。
+            _manifests[entry.CollectionId] = CollectionManifestStore.Read(GetManifestPath(entry.CollectionId));
             return entry.CollectionId;
         }
     }
@@ -103,19 +152,20 @@ internal sealed class PersistentDirectory : IDisposable
             if (idx < 0) { return false; }
             Guid id = _entries[idx].CollectionId;
             _entries.RemoveAt(idx);
+            _manifests.Remove(id);
             PersistCatalog();
             if (_sinks.Remove(id, out IDisposable? sink))
             {
-                // sinks 当前是非托管空壳，仅记录，无需 Dispose。
                 _ = sink;
             }
-            // 删除 collection 目录（若存在）。
-            string collDir = Path.Combine(_root, "collections", id.ToString("N"));
+            string collDir = GetCollectionDir(id);
             if (Directory.Exists(collDir))
             {
                 try { Directory.Delete(collDir, recursive: true); }
                 catch (IOException) { /* 文件被占用时忽略 — 由调用方决定后续处理 */ }
             }
+            // 删除一个集合后，可能让一些 WAL 变得可裁剪。
+            TryTrimWal();
             return true;
         }
     }
@@ -132,21 +182,254 @@ internal sealed class PersistentDirectory : IDisposable
         ThrowIfDisposed();
         lock (_lock)
         {
-            var sink = new WalSink<TKey>(EnsureWalWriter(), collectionId);
+            _ = EnsureWalWriter();
+            var sink = new WalSink<TKey>(this, collectionId);
             _sinks[collectionId] = sink;
             return sink;
         }
     }
 
-    /// <summary>枚举指定集合在 WAL 中的所有有效记录（按写入顺序）。</summary>
-    public IEnumerable<WalRecord> ReadWalFor(Guid collectionId)
+    /// <summary>追加 Insert 记录到 WAL（在 _lock 内串行化）。</summary>
+    internal void AppendInsert<TKey>(Guid collectionId, TKey key, ReadOnlySpan<float> vector) where TKey : notnull
+    {
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+            EnsureWalWriter().AppendInsert(collectionId, key, vector);
+        }
+    }
+
+    /// <summary>追加 Delete 记录到 WAL（在 _lock 内串行化）。</summary>
+    internal void AppendDelete<TKey>(Guid collectionId, TKey key) where TKey : notnull
+    {
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+            EnsureWalWriter().AppendDelete(collectionId, key);
+        }
+    }
+
+    /// <summary>
+    /// 枚举指定集合在 WAL 中的所有有效记录（按写入顺序）；
+    /// 仅返回所在 WAL 文件序列号 &gt; <paramref name="minSeqExclusive"/> 的记录。
+    /// </summary>
+    public IEnumerable<WalRecord> ReadWalFor(Guid collectionId, long minSeqExclusive = 0)
     {
         string walDir = Path.Combine(_root, "wal");
-        foreach (WalRecord r in WalReader.ReadAll(walDir))
+        if (!Directory.Exists(walDir))
         {
-            if (r.CollectionId == collectionId)
+            yield break;
+        }
+        string[] files = Directory.GetFiles(walDir, "wal-*.log");
+        Array.Sort(files, StringComparer.Ordinal);
+        foreach (string file in files)
+        {
+            long seq = TryParseWalSeq(Path.GetFileName(file));
+            if (seq <= minSeqExclusive) { continue; }
+            foreach (WalRecord r in WalReader.ReadFile(file))
             {
-                yield return r;
+                if (r.CollectionId == collectionId)
+                {
+                    yield return r;
+                }
+            }
+        }
+    }
+
+    /// <summary>读取指定集合的 manifest 副本（默认值若尚未注册）。</summary>
+    public CollectionManifest GetManifest(Guid collectionId)
+    {
+        lock (_lock)
+        {
+            if (_manifests.TryGetValue(collectionId, out CollectionManifest m)) { return m; }
+            return CollectionManifestStore.Read(GetManifestPath(collectionId));
+        }
+    }
+
+    /// <summary>
+    /// 在恢复完成后，告知 PersistentDirectory 该集合内存索引中已经从 Segment 加载的行数。
+    /// 后续 <see cref="FlushCollection{TKey}(Guid, FlatIndex{TKey})"/> 会跳过这些行，仅写入新增的 delta。
+    /// </summary>
+    internal void NotifyRestoredRowCount(Guid collectionId, int restoredRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(restoredRows);
+        lock (_lock)
+        {
+            _flushedRows[collectionId] = restoredRows;
+        }
+    }
+
+    /// <summary>枚举指定集合现存的所有 Segment（按 seq 升序），调用方负责释放。</summary>
+    public IEnumerable<SegmentReader<TKey>> LoadSegments<TKey>(Guid collectionId) where TKey : notnull
+    {
+        string segsDir = GetSegmentsDir(collectionId);
+        if (!Directory.Exists(segsDir))
+        {
+            yield break;
+        }
+        string[] dirs = Directory.GetDirectories(segsDir, "seg-*");
+        var clean = dirs.Where(d => !d.EndsWith(".tmp", StringComparison.Ordinal)).ToArray();
+        Array.Sort(clean, StringComparer.Ordinal);
+        foreach (string dir in clean)
+        {
+            yield return SegmentReader<TKey>.Open(dir);
+        }
+    }
+
+    /// <summary>
+    /// 把集合的当前内存索引快照写成新 Segment 并旋转 WAL。
+    /// 仅 <see cref="FlatIndex{TKey}"/> 在 M10 受支持。
+    /// </summary>
+    internal void FlushCollection<TKey>(Guid collectionId, FlatIndex<TKey> index) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+
+            CatalogEntry entry = _entries.FirstOrDefault(e => e.CollectionId == collectionId)
+                ?? throw new DotVectorException($"集合 {collectionId} 未在 catalog 中注册。");
+
+            // 1. 旋转 WAL：当前文件成为"已封闭"的 closedSeq；新写入进入 closedSeq + 1
+            long closedSeq = _currentWalSeq;
+            long newSeq = closedSeq + 1;
+            EnsureWalWriter().Rotate(GetWalPath(newSeq));
+            _currentWalSeq = newSeq;
+
+            // 2. 快照索引（仅 delta：自上次 Flush 起新增的行）
+            int prevFlushed = _flushedRows.TryGetValue(collectionId, out int p) ? p : 0;
+            index.SnapshotSince(prevFlushed, out List<TKey> keys, out float[] vectors, out int newFlushed);
+
+            // 若没有新增行，仍写一个空 Segment（用于推进 LastCoveredWalSequence + 触发 WAL 旋转/裁剪）。
+
+            // 3. 选择 segment 序号
+            CollectionManifest manifest = _manifests.TryGetValue(collectionId, out var m)
+                ? m
+                : CollectionManifestStore.Read(GetManifestPath(collectionId));
+            ulong segSeq = manifest.NextSegmentSequence == 0 ? 1UL : manifest.NextSegmentSequence;
+
+            // 4. 写 Segment（即便 keys 为空也写出来）
+            SegmentHeader header = new()
+            {
+                SequenceNumber = segSeq,
+                VectorCount = (uint)keys.Count,
+                Dimensions = (uint)entry.Dimensions,
+                Metric = (byte)entry.Metric,
+                CreatedAtUtcUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Reserved = default,
+            };
+            string segDir = GetSegmentDir(collectionId, (long)segSeq);
+            SegmentWriter.Write(segDir, header, keys, vectors);
+
+            // 5. 更新 manifest + 已 flush 行数
+            manifest.NextSegmentSequence = segSeq + 1;
+            manifest.LastCoveredWalSequence = (ulong)closedSeq;
+            CollectionManifestStore.Write(GetManifestPath(collectionId), manifest);
+            _manifests[collectionId] = manifest;
+            _flushedRows[collectionId] = newFlushed;
+
+            // 6. 尝试裁剪 WAL
+            TryTrimWal();
+        }
+    }
+
+    /// <summary>
+    /// 把指定集合的所有 Segment 合并为一个新的 Segment（按 seq 顺序拼接）。
+    /// 不影响 <see cref="CollectionManifest.LastCoveredWalSequence"/>。
+    /// </summary>
+    internal void CompactCollection<TKey>(Guid collectionId) where TKey : notnull
+    {
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+
+            CatalogEntry entry = _entries.FirstOrDefault(e => e.CollectionId == collectionId)
+                ?? throw new DotVectorException($"集合 {collectionId} 未在 catalog 中注册。");
+
+            string segsDir = GetSegmentsDir(collectionId);
+            if (!Directory.Exists(segsDir)) { return; }
+
+            string[] dirs = Directory.GetDirectories(segsDir, "seg-*")
+                .Where(d => !d.EndsWith(".tmp", StringComparison.Ordinal))
+                .ToArray();
+            if (dirs.Length <= 1) { return; }
+            Array.Sort(dirs, StringComparer.Ordinal);
+
+            List<TKey> mergedKeys = new();
+            List<float> mergedVectors = new();
+            foreach (string dir in dirs)
+            {
+                using SegmentReader<TKey> reader = SegmentReader<TKey>.Open(dir);
+                mergedKeys.AddRange(reader.Keys);
+                mergedVectors.AddRange(reader.ReadAllVectors());
+            }
+
+            CollectionManifest manifest = _manifests.TryGetValue(collectionId, out var m)
+                ? m
+                : CollectionManifestStore.Read(GetManifestPath(collectionId));
+            ulong newSegSeq = manifest.NextSegmentSequence == 0 ? 1UL : manifest.NextSegmentSequence;
+
+            SegmentHeader header = new()
+            {
+                SequenceNumber = newSegSeq,
+                VectorCount = (uint)mergedKeys.Count,
+                Dimensions = (uint)entry.Dimensions,
+                Metric = (byte)entry.Metric,
+                CreatedAtUtcUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Reserved = default,
+            };
+            string newSegDir = GetSegmentDir(collectionId, (long)newSegSeq);
+            float[] vectorArr = mergedVectors.ToArray();
+            SegmentWriter.Write(newSegDir, header, mergedKeys, vectorArr);
+
+            manifest.NextSegmentSequence = newSegSeq + 1;
+            CollectionManifestStore.Write(GetManifestPath(collectionId), manifest);
+            _manifests[collectionId] = manifest;
+
+            // 删除旧 Segment 目录
+            foreach (string dir in dirs)
+            {
+                try { Directory.Delete(dir, recursive: true); }
+                catch (IOException) { /* 占用时跳过；下次启动可清理 */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 删除所有集合的 <see cref="CollectionManifest.LastCoveredWalSequence"/>
+    /// 都已覆盖的旧 WAL 文件。永远不删除当前正在写入的 WAL（_currentWalSeq）。
+    /// </summary>
+    private void TryTrimWal()
+    {
+        ulong minCovered;
+        if (_manifests.Count == 0)
+        {
+            minCovered = (ulong)Math.Max(0, _currentWalSeq - 1);
+        }
+        else
+        {
+            minCovered = ulong.MaxValue;
+            foreach (CollectionManifest m in _manifests.Values)
+            {
+                if (m.LastCoveredWalSequence < minCovered)
+                {
+                    minCovered = m.LastCoveredWalSequence;
+                }
+            }
+        }
+        if (minCovered == 0) { return; }
+
+        string walDir = Path.Combine(_root, "wal");
+        if (!Directory.Exists(walDir)) { return; }
+        foreach (string file in Directory.EnumerateFiles(walDir, "wal-*.log"))
+        {
+            long seq = TryParseWalSeq(Path.GetFileName(file));
+            if (seq <= 0) { continue; }
+            if (seq >= _currentWalSeq) { continue; }
+            if ((ulong)seq <= minCovered)
+            {
+                try { File.Delete(file); }
+                catch (IOException) { /* 占用则保留 */ }
             }
         }
     }
@@ -178,23 +461,23 @@ internal sealed class PersistentDirectory : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
-    /// <summary>WAL 写入观察者实现。</summary>
+    /// <summary>WAL 写入观察者实现：转发到 PersistentDirectory 的串行化追加方法。</summary>
     private sealed class WalSink<TKey> : IWriteSink<TKey>, IDisposable where TKey : notnull
     {
-        private readonly WalWriter _wal;
+        private readonly PersistentDirectory _owner;
         private readonly Guid _collectionId;
 
-        public WalSink(WalWriter wal, Guid collectionId)
+        public WalSink(PersistentDirectory owner, Guid collectionId)
         {
-            _wal = wal;
+            _owner = owner;
             _collectionId = collectionId;
         }
 
         public void OnInsert(TKey key, ReadOnlySpan<float> vector)
-            => _wal.AppendInsert(_collectionId, key, vector);
+            => _owner.AppendInsert(_collectionId, key, vector);
 
         public void OnDelete(TKey key)
-            => _wal.AppendDelete(_collectionId, key);
+            => _owner.AppendDelete(_collectionId, key);
 
         public void Dispose() { /* WalWriter 由 PersistentDirectory 拥有 */ }
     }

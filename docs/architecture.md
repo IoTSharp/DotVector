@@ -1,18 +1,58 @@
 # DotVector 架构总览
 
-本文档描述 DotVector 的整体架构分层设计。
+本文档描述 DotVector 的整体架构分层设计，以及**客户端/服务端分离**原则。
 
 ---
 
-## 系统分层图
+## 项目依赖关系
+
+```mermaid
+graph LR
+    subgraph Client["客户端（用户应用）"]
+        APP["用户应用\n(ASP.NET Core / SK / MAUI)"]
+        DATA["DotVector.Data\n(IVectorStore 适配层)"]
+        CLI2["DotVector.Cli\n(gRPC 客户端模式)"]
+    end
+
+    subgraph Contract["共享契约层"]
+        CORE["DotVector.Core\n(IDotVectorClient\nIIndex / IStorage\nProtocol DTOs)"]
+    end
+
+    subgraph Server["服务端"]
+        SRV["DotVector\n(服务器实现)"]
+        CLI["DotVector.Cli\n(gRPC server / 嵌入式)"]
+    end
+
+    APP --> DATA
+    APP --> CLI2
+    DATA --> CORE
+    CLI2 --> CORE
+    SRV --> CORE
+    CLI --> SRV
+    CLI --> CORE
+
+    style Contract fill:#ffe,stroke:#cc0
+    style Client fill:#eff,stroke:#0cc
+    style Server fill:#fef,stroke:#c0c
+```
+
+**关键约束**：
+- `DotVector.Data`（客户端）**禁止**直接引用 `DotVector`（服务端）
+- 二者只通过 `DotVector.Core` 中的 `IDotVectorClient` 接口通信
+- 传输实现（gRPC / 进程内）在运行时注入，对 `DotVector.Data` 透明
+
+---
+
+## 系统分层图（服务端内部）
 
 ```mermaid
 graph TD
-    subgraph API["API 层"]
+    subgraph API["API 层（服务端）"]
         VDB["VectorDatabase"]
         COL["Collection&lt;TKey&gt;"]
         REQ["SearchRequest"]
         RES["SearchResult&lt;TKey&gt;"]
+        LCL["LocalDotVectorClient\n(IDotVectorClient 进程内实现, M9)"]
     end
 
     subgraph Index["索引层"]
@@ -28,7 +68,7 @@ graph TD
     subgraph Storage["存储层"]
         WAL["WAL\n(WalWriter/WalReader)"]
         SEG["Segment\n(SegmentWriter/Reader)"]
-        MMAP["Memory-Mapped File\n(单文件持久化, M5)"]
+        MMAP["Memory-Mapped File\n(目录持久化, M5)"]
         MT["MemTable\n(内存写缓冲)"]
     end
 
@@ -44,17 +84,17 @@ graph TD
         COS["Cosine Similarity\n(TensorPrimitives)"]
         IP["InnerProduct\n(TensorPrimitives.Dot)"]
         HAM["Hamming\n(BitOperations)"]
-        VEC["Vector512&lt;float&gt;\n(AVX-512/NEON/SVE)"]
     end
 
     subgraph Catalog["目录层"]
-        CAT["SeriesCatalog\n(集合元数据)"]
+        CAT["CollectionCatalog\n(集合元数据)"]
     end
 
     subgraph Query["查询层"]
         QE["QueryEngine\n(ANN / KNN 调度)"]
     end
 
+    LCL --> VDB
     VDB --> COL
     COL --> QE
     COL --> Index
@@ -80,20 +120,45 @@ graph TD
 
 ## 层次职责
 
+### 共享契约层（`src/DotVector.Core/`）
+
+所有跨越客户端/服务端边界的类型都在此定义。
+
+| 类型 | 职责 |
+|------|------|
+| `IDotVectorClient` | 客户端协议抽象，定义所有操作契约（Create / Upsert / Delete / Search / Ping） |
+| `IIndex<TKey>` | 向量索引抽象（服务端内部） |
+| `IStorage` | 持久化存储抽象（服务端内部） |
+| `IDistanceKernel<T>` | 距离计算内核抽象 |
+| `Protocol/ProtocolDtos.cs` | 协议 DTO：`CreateCollectionRequest` / `VectorUpsertRecord` / `VectorSearchRequest` / `VectorSearchResult` |
+
+### 客户端适配层（`src/DotVector.Data/`）
+
+实现 `Microsoft.Extensions.VectorData.Abstractions` 接口，通过 `IDotVectorClient` 与服务端通信（M7）。
+
+**不引用** `DotVector`（服务端）程序集。
+
+```
+DotVector.Data
+    ↓ 依赖
+DotVector.Core（IDotVectorClient + Protocol DTOs）
+    ↑ 实现（运行时注入）
+GrpcDotVectorClient（M9，位于 DotVector.Data）
+LocalDotVectorClient（M9，位于 DotVector，供进程内嵌入式使用）
+```
+
 ### API 层（`src/DotVector/Api/`）
 
-对外暴露的顶层 API，是用户直接使用的入口点。
+服务端对外暴露的 API，是嵌入式使用的入口点。
 
 | 类型 | 职责 |
 |------|------|
 | `VectorDatabase` | 数据库实例，管理多个 Collection |
 | `Collection<TKey>` | 单个向量集合，封装索引 + 存储 |
-| `SearchRequest` | 搜索请求参数（向量、topK、过滤条件） |
 | `SearchResult<TKey>` | 单条搜索结果（Key、Score、Payload） |
+| `LocalDotVectorClient`（M9） | 实现 `IDotVectorClient`，进程内直接调用 VectorDatabase，零序列化开销 |
 
 ### 索引层（`src/DotVector/Index/`）
-
-实现各种 ANN 索引算法：
 
 | 索引 | Milestone | 算法 |
 |------|-----------|------|
@@ -104,9 +169,7 @@ graph TD
 
 ### 计算层（`src/DotVector/Compute/`）
 
-所有距离函数的 SIMD 加速实现，基于 `TensorPrimitives` 与 `Vector512<T>`。
-
-无任何 IO 或状态，纯函数设计，方便测试。
+所有距离函数的 SIMD 加速实现，基于 `TensorPrimitives` 与 `Vector512<T>`。纯函数设计，无 IO 和状态。
 
 ### 存储层（`src/DotVector/Storage/` + `Wal/`）
 
@@ -137,49 +200,41 @@ my-database.dvec/
             │   └── index.bin   # 索引序列化（HNSW 邻居表 / IVF 倒排列表）
             └── seg-000002/
                 └── ...
-
-优势（对比单文件）：
-  - 每个 vectors.bin 独立 MemoryMappedFile → OS 精确管理页面生命周期
-  - Segment 间并行 IO（多 mmap fd）
-  - Compaction 只替换涉及的 Segment 目录（原子 rename）
-  - 崩溃恢复：WAL 独立文件，Segment 原子提交
 ```
-
-### 接口层（`src/DotVector.Core/`）
-
-定义 `IIndex<TKey>`、`IStorage`、`IDistanceKernel<T>` 等接口，供依赖注入和测试 mock 使用。
-
-### VectorData 适配层（`src/DotVector.Data/`）
-
-实现 `Microsoft.Extensions.VectorData.Abstractions` 接口，与 Semantic Kernel 集成（M7）。
 
 ---
 
 ## 数据流示意
 
-### 写入流程
+### 远程访问（gRPC，M9）
 
 ```
-Insert(key, vector, payload)
-  → Collection.Insert
-    → MemTable.Add
-      → WalWriter.Append (M5)
-        → [background flush]
-          → SegmentWriter.Flush
-            → mmapped file
-  → HnswIndex.Add (M3) / FlatIndex.Add (M2)
+用户应用
+  → DotVector.Data（IVectorStore）
+    → GrpcDotVectorClient（IDotVectorClient）
+      → [gRPC 传输]
+        → DotVector.Cli（gRPC server）
+          → VectorDatabase.Search(...)
+            → QueryEngine → HnswIndex → Compute.Distance
 ```
 
-### 搜索流程
+### 进程内嵌入式访问（M9）
 
 ```
-Search(queryVector, topK, filter)
-  → QueryEngine.Search
-    → ScalarFilter.Evaluate (M6)
-    → HnswIndex.Search / FlatIndex.Search
-      → Compute.Distance (TensorPrimitives)
-    → merge + rerank
-    → return SearchResult[]
+用户应用（直接引用 DotVector）
+  → VectorDatabase.CreateCollection(...)
+  → Collection.Search(queryVec, topK=10)
+    → QueryEngine → HnswIndex → TensorPrimitives.CosineSimilarity
+```
+
+### 通过 VectorData 接口的进程内访问（M9）
+
+```
+用户应用（SK / Semantic Kernel）
+  → IVectorStore（DotVectorVectorStore）
+    → IDotVectorClient（LocalDotVectorClient）
+      → VectorDatabase [进程内，零序列化]
+        → QueryEngine → HnswIndex → Compute
 ```
 
 ---
@@ -194,9 +249,8 @@ Search(queryVector, topK, filter)
 
 ## AOT 兼容性
 
-所有生产代码（`src/DotVector`、`src/DotVector.Core`、`src/DotVector.Cli`）启用 `IsAotCompatible=true`。
-
-关键约束：
+所有生产代码启用 `IsAotCompatible=true`。关键约束：
 - 不使用 `Activator.CreateInstance` 或反射
 - 泛型约束明确（`where T : unmanaged`）
-- `[DynamicallyAccessedMembers]` 标注（如有需要）
+- Protocol DTOs 不依赖运行时反射序列化（M9 gRPC 用 source-generated marshalling）
+

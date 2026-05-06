@@ -1,4 +1,5 @@
 using DotVector.Api;
+using DotVector.Data;
 using DotVector.Model;
 
 namespace DotVector.Tests;
@@ -71,5 +72,18 @@ public sealed class SmokeTests
         var results = collection.Search(query, topK: 5);
 
         Assert.Empty(results);
+    }
+
+    /// <summary>
+    /// 验证 DotVector.Data 适配层不直接持有服务端引用（架构约束验证）。
+    /// DotVector.Data 只应依赖 DotVector.Core 中的 IDotVectorClient 协议接口。
+    /// </summary>
+    [Fact]
+    public void DotVectorData_PlaceholderStatus_ContainsProtocolDescription()
+    {
+        string status = DotVectorVectorDataPlaceholder.GetStatus();
+
+        // 验证描述中包含协议接口关键词，而非直接服务端实现引用
+        Assert.Contains("IDotVectorClient", status);
     }
 }

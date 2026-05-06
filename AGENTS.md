@@ -97,8 +97,39 @@ public struct SegmentHeader
 
 ### 4. 依赖约束
 
+#### 项目依赖层次（严格执行）
+
+```
+DotVector.Core          ← 零外部依赖（BCL only）
+  ↑ 引用
+DotVector               ← System.Numerics.Tensors（BCL 体系）
+  ↑ 引用
+DotVector.Cli           ← 引用 DotVector + DotVector.Core
+
+DotVector.Core          ← 零外部依赖
+  ↑ 引用
+DotVector.Data          ← Microsoft.Extensions.VectorData.Abstractions
+                           【禁止引用 DotVector（服务端）】
+```
+
+#### 客户端/服务端隔离（最重要约束）
+
+> **`src/DotVector.Data`（客户端适配层）禁止直接引用 `src/DotVector`（服务端）程序集。**
+
+原因：
+- `DotVector` 是服务端实现，可以作为独立进程（M9 gRPC server）或嵌入式运行
+- `DotVector.Data` 是客户端 SDK，通过 `IDotVectorClient`（定义于 `DotVector.Core`）与服务端通信
+- 这种隔离使 `DotVector.Data` 可以在不部署服务端的纯客户端场景（如连接远程 DotVector 服务）中单独使用
+
+传输实现方式：
+- **M9 gRPC**：`GrpcDotVectorClient : IDotVectorClient`（位于 `DotVector.Data`，使用 gRPC 传输）
+- **M9 进程内**：`LocalDotVectorClient : IDotVectorClient`（位于 `DotVector`，直接调用 `VectorDatabase`，零序列化）
+
+#### 其他依赖规则
+
 - 核心类库 `src/DotVector` **不得**引入任何第三方 NuGet 运行时依赖
   - 允许 `System.Numerics.Tensors`，因为属于 BCL 体系
+- `src/DotVector.Core` 零第三方依赖
 - 测试项目可引用 `xunit`、`xunit.runner.visualstudio`、`Microsoft.NET.Test.Sdk`、`coverlet.collector`
 - 基准项目可引用 `BenchmarkDotNet`，以及对照基准用的 `Qdrant.Client`、`Milvus.Client`、`Pgvector`、`Npgsql`
 - `src/DotVector.Data` 可引用 `Microsoft.Extensions.VectorData.Abstractions`

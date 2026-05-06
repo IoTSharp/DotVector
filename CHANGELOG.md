@@ -47,6 +47,13 @@
   Compaction 只需原子 rename 涉及的 Segment 目录；与 LanceDB、Qdrant、RocksDB 业界实践一致。
   详见 [ROADMAP.md M5](ROADMAP.md#m5) 对比表。
 
+- **客户端/服务端架构分离**：`DotVector.Data`（VectorData 适配层）禁止直接引用 `DotVector`（服务端）。
+  二者通过 `DotVector.Core` 中的 `IDotVectorClient` 协议接口通信。
+  原因：`DotVector` 可以作为独立进程（M9 gRPC server）运行，客户端 SDK 不应硬依赖服务端实现；
+  传输实现（gRPC/进程内）在运行时注入，使 `DotVector.Data` 可在纯客户端场景中单独发布。
+  - M9 实现 `GrpcDotVectorClient`（gRPC 传输，位于 `DotVector.Data`）
+  - M9 实现 `LocalDotVectorClient`（进程内直连，零序列化，位于 `DotVector`）
+
 ---
 
 <!-- 发布时在此处添加版本号标签，例如： -->

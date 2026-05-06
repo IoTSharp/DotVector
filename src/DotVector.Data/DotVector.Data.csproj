@@ -3,7 +3,12 @@
   <PropertyGroup>
     <AssemblyName>DotVector.Data</AssemblyName>
     <RootNamespace>DotVector.Data</RootNamespace>
-    <!-- Microsoft.Extensions.VectorData 适配层（M7） -->
+    <!--
+      客户端 VectorData 适配层（M7）。
+      此项目【不得】直接引用 DotVector（服务端）。
+      通过 IDotVectorClient（定义于 DotVector.Core）与服务端通信，
+      传输实现（gRPC / 进程内）由调用方在运行时注入。
+    -->
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DotVector\DotVector.csproj" />
+    <!-- 仅依赖共享契约层，不依赖服务端实现 -->
     <ProjectReference Include="..\DotVector.Core\DotVector.Core.csproj" />
   </ItemGroup>
 

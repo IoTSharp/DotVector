@@ -203,11 +203,14 @@ my-database.dvec/
 
 **目标**：实现 `IVectorStore` / `IVectorStoreRecordCollection` 接口，与 Semantic Kernel 深度集成。
 
+**架构说明**：`DotVector.Data`（客户端适配层）通过 `IDotVectorClient` 接口与服务端通信，**不直接引用** `DotVector`（服务端）。
+
 **实现内容**：
-- `DotVectorVectorStore` — 实现 `IVectorStore`
+- `DotVectorVectorStore` — 实现 `IVectorStore`，注入 `IDotVectorClient`
 - `DotVectorCollection<TKey, TRecord>` — 实现 `IVectorStoreRecordCollection<TKey, TRecord>`
 - `VectorStoreRecordDefinition` 支持
 - 与 Semantic Kernel Memory / RAG pipeline 集成示例
+- DI 扩展方法：`services.AddDotVectorVectorStore(client)`
 
 **参考**：
 - `Microsoft.Extensions.VectorData.Abstractions`：https://github.com/dotnet/extensions
@@ -217,6 +220,7 @@ my-database.dvec/
 - [ ] 通过 `IVectorStore` 抽象完成增删改查
 - [ ] 与 Semantic Kernel TextMemory 集成 smoke 测试通过
 - [ ] 符合 `VectorStoreRecordDefinition` 规范（字段映射、向量字段标注）
+- [ ] `DotVector.Data` 项目无对 `DotVector`（服务端）程序集的直接引用（CI 检查）
 
 ---
 
@@ -248,11 +252,13 @@ my-database.dvec/
 
 ## M9 — gRPC Server + Native AOT 单文件部署 + Docker 镜像
 
-**目标**：提供可选的 gRPC server 模式，支持 Native AOT 编译，生成 Docker 镜像。
+**目标**：提供可选的 gRPC server 模式，支持 Native AOT 编译，生成 Docker 镜像。同时完善客户端/服务端的双向连接实现。
 
 **实现内容**：
 - `DotVector.Cli` — gRPC server 模式（`dotnet-grpc`）
 - Protobuf 定义（VectorService：Insert / Search / Delete / CreateCollection）
+- `GrpcDotVectorClient : IDotVectorClient`（位于 `DotVector.Data`）— gRPC 传输，供远程访问使用
+- `LocalDotVectorClient : IDotVectorClient`（位于 `DotVector`）— 进程内直连，零序列化，供嵌入式使用
 - Native AOT 发布配置（`PublishAot=true`）
 - `Dockerfile` — 多阶段构建，最终镜像基于 `mcr.microsoft.com/dotnet/runtime-deps`
 - `docker-compose.yml` — 一键启动

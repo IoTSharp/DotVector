@@ -1,4 +1,4 @@
-# # DotVector
+# DotVector
 
 [![CI](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml/badge.svg)](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/DotVector.svg)](https://www.nuget.org/packages/DotVector)

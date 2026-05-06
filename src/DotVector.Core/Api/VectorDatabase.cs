@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using DotVector.Index.Hnsw;
 using DotVector.Model;
 
 namespace DotVector.Api;
@@ -58,12 +59,32 @@ public sealed class VectorDatabase : IDisposable
         int dimensions,
         Metric metric = Metric.Cosine)
         where TKey : notnull
+        => CreateCollection<TKey>(name, dimensions, metric, IndexKind.Flat, hnswOptions: null);
+
+    /// <summary>
+    /// 创建新的向量集合，并指定底层索引类型。
+    /// </summary>
+    /// <typeparam name="TKey">记录主键类型。</typeparam>
+    /// <param name="name">集合名称，在同一数据库内唯一。</param>
+    /// <param name="dimensions">向量维度。</param>
+    /// <param name="metric">距离度量类型。</param>
+    /// <param name="indexKind">索引类型（<see cref="IndexKind.Flat"/> 或 <see cref="IndexKind.Hnsw"/>）。</param>
+    /// <param name="hnswOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.Hnsw"/> 时使用的参数；为 <see langword="null"/> 时使用 <see cref="HnswOptions.Default"/>。</param>
+    /// <returns>新建的集合实例。</returns>
+    /// <exception cref="InvalidOperationException">同名集合已存在。</exception>
+    public Collection<TKey> CreateCollection<TKey>(
+        string name,
+        int dimensions,
+        Metric metric,
+        IndexKind indexKind,
+        HnswOptions? hnswOptions = null)
+        where TKey : notnull
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimensions);
         ThrowIfDisposed();
 
-        var collection = new Collection<TKey>(name, dimensions, metric);
+        var collection = new Collection<TKey>(name, dimensions, metric, indexKind, hnswOptions);
         if (!_collections.TryAdd(name, collection))
         {
             collection.Dispose();

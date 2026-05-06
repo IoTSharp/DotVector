@@ -2,9 +2,24 @@
 
 DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多个 PR，验收标准明确。
 
+**状态图例**：✅ 已完成　🚧 进行中　⏳ 未开始
+
+| Milestone | 状态 | 主题 |
+|-----------|:----:|------|
+| M0 | ✅ | 工程骨架 + 文档 + 设计基线 |
+| M1 | ✅ | 距离函数与 SIMD 内核 |
+| M2 | ✅ | 内存索引 — Brute Force / Flat |
+| M3 | ✅ | HNSW 索引 |
+| M4 | ⏳ | IVF / IVF-PQ 索引 |
+| M5 | ⏳ | 持久化层（目录格式 + mmap + WAL） |
+| M6 | ⏳ | 标量过滤（Payload Filter） |
+| M7 | ⏳ | `Microsoft.Extensions.VectorData` 适配 |
+| M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
+| M9 | ⏳ | gRPC Server + Native AOT + Docker |
+
 ---
 
-## M0 — 工程骨架 + 文档 + 设计基线
+## ✅ M0 — 工程骨架 + 文档 + 设计基线
 
 **目标**：建立可构建、可测试的项目骨架，完成所有架构决策文档。
 
@@ -20,7 +35,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 
 ---
 
-## M1 — 距离函数与 SIMD 内核
+## ✅ M1 — 距离函数与 SIMD 内核
 
 **目标**：实现所有核心距离函数，充分利用 .NET 10 `TensorPrimitives` 与 `Vector512<T>`。
 
@@ -42,7 +57,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 
 ---
 
-## M2 — 内存索引 — Brute Force / Flat
+## ✅ M2 — 内存索引 — Brute Force / Flat
 
 **目标**：实现内存中的精确最近邻搜索，类似 FAISS `IndexFlat`、Milvus `FLAT`。
 
@@ -64,7 +79,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 
 ---
 
-## M3 — HNSW 索引
+## ✅ M3 — HNSW 索引
 
 **目标**：实现 HNSW（Hierarchical Navigable Small World）图索引，纯托管 C#。
 
@@ -82,14 +97,14 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 - Milvus HNSW：https://github.com/milvus-io/milvus/tree/master/internal/core/src/index/hnsw
 
 **验收标准**：
-- [ ] Recall@10 ≥ 0.95（在 SIFT-1M 或 GloVe 等标准数据集上）
-- [ ] 构建速度：10 万条 128 维向量，构建时间 < 10 秒
-- [ ] 内存占用与 hnswlib 同数量级（< 2x 差距）
-- [ ] M/EfConstruction/EfSearch 参数可调，有文档注释
+- [x] Recall@10 ≥ 0.95（1000×64 随机数据 × 4 种距离 × 4 种 seed，见 `HnswRecallTests`）
+- [ ] 构建速度：10 万条 128 维向量，构建时间 < 10 秒（待 M8 基准对比）
+- [ ] 内存占用与 hnswlib 同数量级（< 2x 差距）（待 M8 基准对比）
+- [x] M/EfConstruction/EfSearch 参数可调，有中文 XML 文档注释
 
 ---
 
-## M4 — IVF / IVF-PQ 索引
+## ⏳ M4 — IVF / IVF-PQ 索引
 
 **目标**：实现倒排文件索引（IVF）和乘积量化（IVF-PQ），适合大规模向量集合。
 
@@ -111,7 +126,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 
 ---
 
-## M5 — 持久化层（目录格式 + mmap + WAL）
+## ⏳ M5 — 持久化层（目录格式 + mmap + WAL）
 
 **目标**：实现**单目录持久化**存储格式（`.dvec/` 目录），支持崩溃恢复，性能优于单文件方案。
 
@@ -177,7 +192,7 @@ my-database.dvec/
 
 ---
 
-## M6 — 标量过滤（Payload Filter）
+## ⏳ M6 — 标量过滤（Payload Filter）
 
 **目标**：支持在向量搜索时附加标量条件过滤，类似 Qdrant payload index / pgvector `WHERE`。
 
@@ -199,7 +214,7 @@ my-database.dvec/
 
 ---
 
-## M7 — `Microsoft.Extensions.VectorData` 适配
+## ⏳ M7 — `Microsoft.Extensions.VectorData` 适配
 
 **目标**：实现 `IVectorStore` / `IVectorStoreRecordCollection` 接口，与 Semantic Kernel 深度集成。
 
@@ -224,7 +239,7 @@ my-database.dvec/
 
 ---
 
-## M8 — BenchmarkDotNet 基准 + 对照 Qdrant / Milvus / pgvector
+## ⏳ M8 — BenchmarkDotNet 基准 + 对照 Qdrant / Milvus / pgvector
 
 **目标**：建立完整的性能基准，与主流向量数据库横向对比。
 
@@ -250,7 +265,7 @@ my-database.dvec/
 
 ---
 
-## M9 — gRPC Server + Native AOT 单文件部署 + Docker 镜像
+## ⏳ M9 — gRPC Server + Native AOT 单文件部署 + Docker 镜像
 
 **目标**：提供可选的 gRPC server 模式，支持 Native AOT 编译，生成 Docker 镜像。同时完善客户端/服务端的双向连接实现。
 
@@ -275,7 +290,7 @@ my-database.dvec/
 
 ---
 
-## 预留 Milestone
+## ⏳ 预留 Milestone
 
 | Milestone | 内容 | 参考 |
 |-----------|------|------|

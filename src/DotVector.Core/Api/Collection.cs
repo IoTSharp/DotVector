@@ -1,5 +1,7 @@
 using System.Buffers;
+using DotVector.Core;
 using DotVector.Index.Flat;
+using DotVector.Index.Hnsw;
 using DotVector.Model;
 
 namespace DotVector.Api;
@@ -9,14 +11,14 @@ namespace DotVector.Api;
 /// </summary>
 /// <typeparam name="TKey">记录主键类型。</typeparam>
 /// <remarks>
-/// M2 实现：底层使用 <see cref="FlatIndex{TKey}"/>（线性扫描精确检索）。
-/// TODO(M3): 支持切换到 HnswIndex（图索引近似检索）。
+/// M2 实现：底层默认使用 <see cref="FlatIndex{TKey}"/>（线性扫描精确检索）。
+/// M3 起：可选用 <see cref="HnswIndex{TKey}"/>（图索引近似检索，召回率 ≥ 0.95）。
 /// TODO(M4): 支持切换到 IvfFlatIndex / IvfPqIndex（倒排聚类）。
 /// </remarks>
 public sealed class Collection<TKey> : IDisposable
     where TKey : notnull
 {
-    private readonly FlatIndex<TKey> _index;
+    private readonly IIndex<TKey> _index;
     private bool _disposed;
 
     /// <summary>
@@ -25,12 +27,25 @@ public sealed class Collection<TKey> : IDisposable
     /// <param name="name">集合名称。</param>
     /// <param name="dimensions">向量维度。</param>
     /// <param name="metric">距离度量类型。</param>
-    internal Collection(string name, int dimensions, Metric metric)
+    /// <param name="indexKind">索引类型。</param>
+    /// <param name="hnswOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.Hnsw"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
+    internal Collection(
+        string name,
+        int dimensions,
+        Metric metric,
+        IndexKind indexKind = IndexKind.Flat,
+        HnswOptions? hnswOptions = null)
     {
         Name = name;
         Dimensions = dimensions;
         Metric = metric;
-        _index = new FlatIndex<TKey>(dimensions, metric);
+        IndexKind = indexKind;
+        _index = indexKind switch
+        {
+            IndexKind.Flat => new FlatIndex<TKey>(dimensions, metric),
+            IndexKind.Hnsw => new HnswIndex<TKey>(dimensions, metric, hnswOptions),
+            _ => throw new ArgumentOutOfRangeException(nameof(indexKind), indexKind, "未支持的索引类型。"),
+        };
     }
 
     /// <summary>集合名称。</summary>
@@ -41,6 +56,9 @@ public sealed class Collection<TKey> : IDisposable
 
     /// <summary>距离度量类型。</summary>
     public Metric Metric { get; }
+
+    /// <summary>底层使用的索引类型。</summary>
+    public IndexKind IndexKind { get; }
 
     /// <summary>当前集合中的向量条数。</summary>
     public long Count => _index.Count;
@@ -58,9 +76,13 @@ public sealed class Collection<TKey> : IDisposable
     }
 
     /// <summary>
-    /// 批量插入向量记录，单次写锁原子完成（要么全部成功，要么全部不变）。
+    /// 批量插入向量记录。
     /// </summary>
     /// <param name="records">要插入的向量记录集合。</param>
+    /// <remarks>
+    /// 对 <see cref="IndexKind.Flat"/> 集合使用专门的原子批量接口；
+    /// 对其它索引（如 HNSW）退化为逐条插入。
+    /// </remarks>
     public void InsertBatch(IEnumerable<VectorRecord<TKey>> records)
     {
         ArgumentNullException.ThrowIfNull(records);
@@ -91,7 +113,18 @@ public sealed class Collection<TKey> : IDisposable
             r.Vector.AsSpan().CopyTo(dst.Slice(i * Dimensions, Dimensions));
         }
 
-        _index.AddBatch(keys, packed);
+        if (_index is FlatIndex<TKey> flat)
+        {
+            flat.AddBatch(keys, packed);
+        }
+        else
+        {
+            ReadOnlySpan<float> src = packed;
+            for (int i = 0; i < n; i++)
+            {
+                _index.Add(keys[i], src.Slice(i * Dimensions, Dimensions));
+            }
+        }
     }
 
     /// <summary>
@@ -156,7 +189,10 @@ public sealed class Collection<TKey> : IDisposable
     {
         if (_disposed) { return; }
         _disposed = true;
-        _index.Dispose();
+        if (_index is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 
     private void ThrowIfDisposed()

@@ -8,6 +8,22 @@
 
 ### Added
 
+- PR #M3：M3 — HNSW 图索引
+  - `src/DotVector.Core/Index/Hnsw/HnswOptions.cs`：HNSW 参数（`M=16` / `EfConstruction=200` / `EfSearch=50` / `Seed`）+ `Default` + `Validate()`
+  - `src/DotVector.Core/Format/HnswNodeHeader.cs`：`[StructLayout(Sequential, Pack=1)]` `unmanaged struct`，40 字节固定布局，含 `[InlineArray(16)]` `NeighborCounts16`
+  - `src/DotVector.Core/Index/Hnsw/HnswIndex.cs`：`HnswIndex<TKey> : IIndex<TKey>, IDisposable`（~430 行，安全代码，无 `unsafe`）
+    - 多层图（`mL = 1/ln(M)`，`MaxLN=M` / `MaxL0=2*M`），随机层级生成（`Random(Seed)`）
+    - 贪心下降 + ef-search（Algorithm 2）+ Algorithm 4 启发式邻居选择（heuristic neighbor selection）
+    - 内部统一以 "smaller-better" 度量驱动堆，larger-better 度量（`InnerProduct`）入堆前取负
+    - `ReaderWriterLockSlim(NoRecursion)` 多读单写并发；`Remove` 使用 tombstone 软删除
+    - 拒绝 `Hamming`（`NotSupportedException`）
+  - `src/DotVector.Core/Model/IndexKind.cs`：`enum IndexKind { Flat=0, Hnsw=1 }`
+  - `src/DotVector.Core/Api/Collection.cs`：`IIndex<TKey>` 多态化，按 `IndexKind` 选择构造的索引实现
+  - `src/DotVector.Core/Api/VectorDatabase.cs`：新增 `CreateCollection<TKey>(name, dim, metric, IndexKind, HnswOptions?)` 重载
+  - `tests/DotVector.Core.Tests/Index/Hnsw/HnswIndexTests.cs`：12 个单测（构造校验 / 维度校验 / 重复键 / Top-K 排序 / Remove tombstone / 并发读）
+  - `tests/DotVector.Core.Tests/Format/HnswNodeHeaderTests.cs`：`SizeOf` + `MemoryMarshal.Read/Write` round-trip（含全部 16 个 `NeighborCounts` 字段）
+  - `tests/DotVector.Accuracy.Tests/HnswRecallTests.cs`：1000×64 随机数据 × 4 种距离 × 4 种 seed 的 Recall@10 ≥ 0.95 验收
+
 - PR #3：M2 — 内存索引（Brute Force / Flat）
   - `src/DotVector.Core/Index/Flat/FlatIndex.cs`：`FlatIndex<TKey> : IIndex<TKey>, IDisposable` 暴力检索索引
     - 行优先 `List<float>` 向量存储 + `Dictionary<TKey,int>` 主键到行号映射

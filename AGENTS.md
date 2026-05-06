@@ -100,36 +100,39 @@ public struct SegmentHeader
 #### 项目依赖层次（严格执行）
 
 ```
-DotVector.Core          ← 零外部依赖（BCL only）
-  ↑ 引用
-DotVector               ← System.Numerics.Tensors（BCL 体系）
-  ↑ 引用
-DotVector.Cli           ← 引用 DotVector + DotVector.Core
-
-DotVector.Core          ← 零外部依赖
-  ↑ 引用
-DotVector.Data          ← Microsoft.Extensions.VectorData.Abstractions
-                           【禁止引用 DotVector（服务端）】
+DotVector.Core          ← 完整嵌入式向量数据库引擎（仅依赖 BCL + System.Numerics.Tensors）
+  ↑ 引用                  一个 VectorDatabase 实例 = 打开一个 .dvec 目录
+  │
+DotVector               ← 服务端壳：在一个进程内托管多个 VectorDatabase 实例
+  ↑ gRPC 远程访问       （几个数据库 = 几个 Core 实例，每个对应一个目录）
+  │
+DotVector.Data          ← 客户端 SDK：Microsoft.Extensions.VectorData.Abstractions 适配
+  ↑ 引用                  · 本地嵌入式：直接引用 DotVector.Core，零序列化
+  │                       · 远程服务器：通过 gRPC 调用 DotVector
+  │                       【禁止直接引用 DotVector（服务端壳）】
+DotVector.Cli           ← 仅引用 DotVector.Data；同时支持本地嵌入式与远程服务器访问
 ```
 
 #### 客户端/服务端隔离（最重要约束）
 
-> **`src/DotVector.Data`（客户端适配层）禁止直接引用 `src/DotVector`（服务端）程序集。**
+> **`src/DotVector.Data`（客户端适配层）禁止直接引用 `src/DotVector`（服务端壳）程序集。**
 
 原因：
-- `DotVector` 是服务端实现，可以作为独立进程（M9 gRPC server）或嵌入式运行
-- `DotVector.Data` 是客户端 SDK，通过 `IDotVectorClient`（定义于 `DotVector.Core`）与服务端通信
-- 这种隔离使 `DotVector.Data` 可以在不部署服务端的纯客户端场景（如连接远程 DotVector 服务）中单独使用
+- `DotVector.Core` 是真正的嵌入式数据库引擎；既可以由本地进程直接 `new VectorDatabase(path)` 嵌入式调用，也可以由 `DotVector` 服务端壳托管
+- `DotVector` 是服务端实现，把多个 `DotVector.Core` 数据库实例（每个对应一个目录）暴露成进程外 API（M9 gRPC server）
+- `DotVector.Data` 是客户端 SDK，通过 `IDotVectorClient`（定义于 `DotVector.Core`）与本地或远程引擎通信
+- 这种隔离使 `DotVector.Data` 可以在纯客户端场景（仅连接远程 DotVector 服务）中单独使用，而无需带上服务端壳
 
 传输实现方式：
+- **嵌入式**：直接在宿主进程构造 `DotVector.Core.Api.VectorDatabase` 使用，零序列化
 - **M9 gRPC**：`GrpcDotVectorClient : IDotVectorClient`（位于 `DotVector.Data`，使用 gRPC 传输）
-- **M9 进程内**：`LocalDotVectorClient : IDotVectorClient`（位于 `DotVector`，直接调用 `VectorDatabase`，零序列化）
+- **M9 进程内代理**：`LocalDotVectorClient : IDotVectorClient`（位于 `DotVector`，直接调用 `VectorDatabase`，零序列化）
 
 #### 其他依赖规则
 
-- 核心类库 `src/DotVector` **不得**引入任何第三方 NuGet 运行时依赖
+- `src/DotVector.Core` **不得**引入任何第三方 NuGet 运行时依赖
   - 允许 `System.Numerics.Tensors`，因为属于 BCL 体系
-- `src/DotVector.Core` 零第三方依赖
+- `src/DotVector`（服务端壳）**不得**引入任何第三方 NuGet 运行时依赖（M9 才会引入 gRPC 相关包）
 - 测试项目可引用 `xunit`、`xunit.runner.visualstudio`、`Microsoft.NET.Test.Sdk`、`coverlet.collector`
 - 基准项目可引用 `BenchmarkDotNet`，以及对照基准用的 `Qdrant.Client`、`Milvus.Client`、`Pgvector`、`Npgsql`
 - `src/DotVector.Data` 可引用 `Microsoft.Extensions.VectorData.Abstractions`
@@ -342,7 +345,7 @@ DotVector/
 │   │   ├── Query/                 # 查询引擎
 │   │   ├── Storage/               # MemTable / SegmentWriter / Reader
 │   │   └── Wal/                   # WalWriter / WalReader
-│   ├── DotVector.Core/              # 抽象与接口（IIndex / IStorage / IDistanceKernel<T>）
+│   ├── DotVector.Core/              # 完整嵌入式向量数据库引擎（VectorDatabase / Collection / FlatIndex / Distance / IIndex / IStorage / IDistanceKernel<T> ...）
 │   ├── DotVector.Data/              # Microsoft.Extensions.VectorData 适配（M7）
 │   └── DotVector.Cli/               # 命令行工具
 ├── tests/

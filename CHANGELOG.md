@@ -8,6 +8,31 @@
 
 ### Added
 
+- PR #3：M2 — 内存索引（Brute Force / Flat）
+  - `src/DotVector.Core/Index/Flat/FlatIndex.cs`：`FlatIndex<TKey> : IIndex<TKey>, IDisposable` 暴力检索索引
+    - 行优先 `List<float>` 向量存储 + `Dictionary<TKey,int>` 主键到行号映射
+    - `ReaderWriterLockSlim`（NoRecursion）多读单写并发；写路径包括 `Add` / `AddBatch`（重复主键原子拒绝） / `Remove`（swap-with-last）
+    - `Search` 使用 BCL `PriorityQueue<int,float>` 维护 K 受限堆：smaller-better 取 `-score`、larger-better 取 `+score`，确保堆顶为最差候选可被替换；`EnqueueDequeue` 替换；最终反序写出"最佳→最差"
+    - `Hamming` 在构造时即抛 `NotSupportedException`（fp32 内核暂不支持）
+  - `src/DotVector.Core/Model/MetricExtensions.cs`：`IsLargerBetter()` 扩展（仅 `InnerProduct` / `DotProduct`）
+  - `src/DotVector.Core/Api/Collection.cs`：接入 `FlatIndex<TKey>`
+    - `Insert` / `InsertBatch`（一次性打包成 `float[]` 调用 `AddBatch`，原子性） / `Delete` / `Search`
+    - `Search` 通过 `ArrayPool<(TKey,float)>.Shared` 复用结果缓冲，归还时 `clearArray: true`
+  - `src/DotVector.Core/Api/VectorDatabase.cs`：基于 `ConcurrentDictionary<string, IDisposable>`（`StringComparer.Ordinal`）的多集合注册表
+    - `CreateCollection<TKey>` / `GetCollection<TKey>`（TKey 不匹配抛 `InvalidOperationException`） / `DropCollection` / `Dispose`
+    - 预留 `VectorDatabase(string directoryPath)` 构造（M5 持久化占位）
+  - `tests/DotVector.Core.Tests/Index/Flat/FlatIndexTests.cs`：13 个 FlatIndex 单测（构造校验 / 维度校验 / 重复键 / 排序正确性 / 删除 / 批量 / 并发读一致性）
+  - `tests/DotVector.Tests/CollectionTests.cs`：8 个 Collection / VectorDatabase 集成测试（注册冲突、TKey 错配、Dispose 释放、并发读 Top-1 一致）
+  - `tests/DotVector.Accuracy.Tests/FlatRecallTests.cs`：1000×64 随机数据集 × 4 种距离的 Recall@10 = 1.0 精确性回归
+
+### Changed
+
+- 项目分工调整：`src/DotVector.Core` 升级为完整的嵌入式向量数据库实现（一次"打开"即对应一个数据库目录）；`src/DotVector` 改为服务器壳（M9 进程内托管多个 `VectorDatabase` 实例，每个目录一个实例）
+  - 14 个引擎子目录（Api / Buffers / Catalog / Compression / Compute / Exceptions / Format / Index / IO / Model / PageStore / Query / Storage / Wal）从 `src/DotVector` 迁移到 `src/DotVector.Core`
+  - `DotVector.Core` 新增 `System.Numerics.Tensors` 引用
+  - `DotVector` 仅引用 `DotVector.Core`，新增 `Server/DotVectorServer.cs` 占位类（TODO M9）
+  - `DotVector.Data` 仍只引用 `DotVector.Core`，与服务端保持隔离
+
 - PR #2：M1 — 距离函数与 SIMD 内核
   - `src/DotVector/Compute/Distance.cs`：基于 `System.Numerics.Tensors.TensorPrimitives` 与 `System.Numerics.Vector<float>` 实现 SIMD 距离函数
     - `L2Squared` / `L2`：手写 `Vector<float>` 累加器（diff*diff），尾部 scalar 处理

@@ -7,8 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DotVector\DotVector.csproj" />
-    <ProjectReference Include="..\DotVector.Core\DotVector.Core.csproj" />
+    <!--
+      CLI 仅引用客户端 SDK（DotVector.Data），同时支持：
+        - 本地嵌入式访问：LocalDotVectorClient → DotVector.Core.Api.VectorDatabase
+        - 远程服务器访问：GrpcDotVectorClient → DotVector（gRPC server）
+      不直接引用 DotVector（服务端壳）与 DotVector.Core（嵌入式引擎）。
+    -->
+    <ProjectReference Include="..\DotVector.Data\DotVector.Data.csproj" />
   </ItemGroup>
 
 </Project>

@@ -2,8 +2,25 @@
 
   <PropertyGroup>
     <AssemblyName>DotVector.Core</AssemblyName>
-    <RootNamespace>DotVector.Core</RootNamespace>
-    <!-- 抽象与共享接口层，仅依赖 BCL -->
+    <RootNamespace>DotVector</RootNamespace>
+    <!--
+      嵌入式向量数据库的完整核心实现。
+      允许引用 System.Numerics.Tensors（属于 BCL 体系）。
+      不得引入任何其他第三方运行时依赖。
+    -->
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Numerics.Tensors" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotVector" />
+    <InternalsVisibleTo Include="DotVector.Cli" />
+    <InternalsVisibleTo Include="DotVector.Core.Tests" />
+    <InternalsVisibleTo Include="DotVector.Tests" />
+    <InternalsVisibleTo Include="DotVector.Accuracy.Tests" />
+    <InternalsVisibleTo Include="DotVector.Benchmarks" />
+  </ItemGroup>
 
 </Project>

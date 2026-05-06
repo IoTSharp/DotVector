@@ -2,22 +2,20 @@
 
   <PropertyGroup>
     <AssemblyName>DotVector</AssemblyName>
-    <RootNamespace>DotVector</RootNamespace>
-    <!-- 核心库：零第三方运行时依赖，允许 System.Numerics.Tensors（BCL 体系） -->
+    <RootNamespace>DotVector.Server</RootNamespace>
+    <!--
+      DotVector 服务端宿主：托管多个嵌入式数据库实例（DotVector.Core）。
+      每个目录 = 一个 DotVector.Core 实例；多个数据库 = 多个 Core 实例。
+      M9 起将在此实现 gRPC 端点、进程托管、生命周期管理。
+    -->
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="System.Numerics.Tensors" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DotVector.Core\DotVector.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="DotVector.Core.Tests" />
     <InternalsVisibleTo Include="DotVector.Tests" />
-    <InternalsVisibleTo Include="DotVector.Benchmarks" />
   </ItemGroup>
 
 </Project>

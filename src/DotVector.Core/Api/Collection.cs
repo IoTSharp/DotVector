@@ -1,9 +1,11 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using DotVector.Core;
 using DotVector.Index.Flat;
 using DotVector.Index.Hnsw;
 using DotVector.Index.Ivf;
 using DotVector.Model;
+using DotVector.Query;
 using DotVector.Storage;
 
 namespace DotVector.Api;
@@ -21,6 +23,7 @@ public sealed class Collection<TKey> : IDisposable
     where TKey : notnull
 {
     private readonly IIndex<TKey> _index;
+    private readonly ConcurrentDictionary<TKey, IReadOnlyDictionary<string, object?>> _payloads = new();
     private IWriteSink<TKey>? _writeSink;
     private bool _disposed;
 
@@ -90,6 +93,7 @@ public sealed class Collection<TKey> : IDisposable
         ThrowIfDisposed();
         _writeSink?.OnInsert(record.Key, record.Vector);
         _index.Add(record.Key, record.Vector);
+        StorePayload(record.Key, record.Payload);
     }
 
     /// <summary>
@@ -151,6 +155,11 @@ public sealed class Collection<TKey> : IDisposable
                 _index.Add(keys[i], src.Slice(i * Dimensions, Dimensions));
             }
         }
+
+        for (int i = 0; i < n; i++)
+        {
+            StorePayload(keys[i], list[i].Payload);
+        }
     }
 
     /// <summary>
@@ -163,7 +172,27 @@ public sealed class Collection<TKey> : IDisposable
         ArgumentNullException.ThrowIfNull(key);
         ThrowIfDisposed();
         _writeSink?.OnDelete(key);
-        return _index.Remove(key);
+        bool removed = _index.Remove(key);
+        _payloads.TryRemove(key, out _);
+        return removed;
+    }
+
+    /// <summary>
+    /// 获取指定键的标量 payload（M6）。
+    /// </summary>
+    /// <param name="key">记录主键。</param>
+    /// <returns>payload 字典；若记录不存在或未提供 payload 则返回 <see langword="null"/>。</returns>
+    /// <remarks>
+    /// payload 仅保存在内存中，<b>不写入 WAL</b>，重启后会丢失。
+    /// 完整的 payload 持久化将在后续 milestone 与 Segment 落盘一并实现。
+    /// </remarks>
+    public IReadOnlyDictionary<string, object?>? GetPayload(TKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ThrowIfDisposed();
+        return _payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? payload)
+            ? payload
+            : null;
     }
 
     /// <summary>
@@ -178,6 +207,24 @@ public sealed class Collection<TKey> : IDisposable
     public IReadOnlyList<SearchResult<TKey>> Search(
         ReadOnlySpan<float> query,
         int topK = 10)
+        => Search(query, topK, filter: null);
+
+    /// <summary>
+    /// 带标量过滤的近似最近邻搜索（M6）。
+    /// </summary>
+    /// <param name="query">查询向量（维度须与集合一致）。</param>
+    /// <param name="topK">返回结果数量。</param>
+    /// <param name="filter">标量过滤表达式；为 <see langword="null"/> 时与无过滤 <see cref="Search(ReadOnlySpan{float}, int)"/> 等价。</param>
+    /// <returns>满足过滤条件且按相似度排序的前 <paramref name="topK"/> 条结果。</returns>
+    /// <remarks>
+    /// 实现策略：向底层索引过取 (over-fetch) 后在 Collection 层进行 post-filter。
+    /// 这使用于任何 <see cref="IIndex{TKey}"/> 实现，代价是高选择率过滤下召回率会下降；
+    /// 在 M6 范围内默认过取倍率为 8。后续可在各索引内部推动谓词下推。
+    /// </remarks>
+    public IReadOnlyList<SearchResult<TKey>> Search(
+        ReadOnlySpan<float> query,
+        int topK,
+        Filter? filter)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(topK);
         if (query.Length != Dimensions)
@@ -188,20 +235,43 @@ public sealed class Collection<TKey> : IDisposable
         }
         ThrowIfDisposed();
 
+        int fetch = topK;
+        if (filter is not null)
+        {
+            long count = _index.Count;
+            if (count == 0)
+            {
+                return Array.Empty<SearchResult<TKey>>();
+            }
+            long desired = Math.Max((long)topK * 8, topK + 32L);
+            fetch = (int)Math.Min(desired, count);
+        }
+
         var pool = ArrayPool<(TKey Key, float Score)>.Shared;
-        (TKey Key, float Score)[] buffer = pool.Rent(topK);
+        (TKey Key, float Score)[] buffer = pool.Rent(fetch);
         try
         {
-            int written = _index.Search(query, topK, buffer.AsSpan(0, topK));
+            int written = _index.Search(query, fetch, buffer.AsSpan(0, fetch));
             if (written == 0)
             {
                 return Array.Empty<SearchResult<TKey>>();
             }
 
-            var results = new SearchResult<TKey>[written];
+            int capacity = filter is null ? written : Math.Min(written, topK);
+            var results = new List<SearchResult<TKey>>(capacity);
             for (int i = 0; i < written; i++)
             {
-                results[i] = new SearchResult<TKey>(buffer[i].Key, buffer[i].Score);
+                TKey key = buffer[i].Key;
+                IReadOnlyDictionary<string, object?>? payload = _payloads.TryGetValue(key, out var p) ? p : null;
+                if (filter is not null && !filter.Matches(payload))
+                {
+                    continue;
+                }
+                results.Add(new SearchResult<TKey>(key, buffer[i].Score) { Payload = payload });
+                if (results.Count >= topK)
+                {
+                    break;
+                }
             }
             return results;
         }
@@ -225,5 +295,22 @@ public sealed class Collection<TKey> : IDisposable
     private void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    private void StorePayload(TKey key, Dictionary<string, object>? payload)
+    {
+        if (payload is null || payload.Count == 0)
+        {
+            _payloads.TryRemove(key, out _);
+            return;
+        }
+
+        // 拷贝一份并转为 IReadOnlyDictionary<string, object?>，与 Filter 的签名一致。
+        var snapshot = new Dictionary<string, object?>(payload.Count, StringComparer.Ordinal);
+        foreach (var kv in payload)
+        {
+            snapshot[kv.Key] = kv.Value;
+        }
+        _payloads[key] = snapshot;
     }
 }

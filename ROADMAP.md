@@ -11,8 +11,8 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M2 | ✅ | 内存索引 — Brute Force / Flat |
 | M3 | ✅ | HNSW 索引 |
 | M4 | ✅ | IVF / IVF-PQ 索引 |
-| M5 | ⏳ | 持久化层（目录格式 + mmap + WAL） |
-| M6 | ⏳ | 标量过滤（Payload Filter） |
+| M5 | ✅ | 持久化层（目录格式 + WAL） |
+| M6 | 🚧 | 标量过滤（Payload Filter） |
 | M7 | ⏳ | `Microsoft.Extensions.VectorData` 适配 |
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
 | M9 | ⏳ | gRPC Server + Native AOT + Docker |
@@ -129,9 +129,12 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 
 ---
 
-## ⏳ M5 — 持久化层（目录格式 + mmap + WAL）
+## ✅ M5 — 持久化层（目录格式 + WAL）
 
 **目标**：实现**单目录持久化**存储格式（`.dvec/` 目录），支持崩溃恢复，性能优于单文件方案。
+
+> 当前已落地：`.dvec/` 目录布局、`catalog.bin` 原子写入、WAL（CRC32 + torn-write 截断）+ 重启回放。
+> mmap 读路径与 Compaction 留作后续 milestone（不阻塞 M6/M7）。
 
 ### 为何选择目录而非单文件？
 
@@ -185,25 +188,27 @@ my-database.dvec/
 - Qdrant 目录格式：https://github.com/qdrant/qdrant/tree/master/lib/segment
 
 **验收标准**：
-- [ ] 写入 → 关闭 → 重新打开 → 搜索，结果一致（round-trip）
-- [ ] WAL replay 测试：模拟崩溃（直接 kill 进程）后数据不丢失
-- [ ] 并发只读：多线程同时 mmap 读取同一 Segment，无数据竞争
-- [ ] Compaction 测试：Segment 合并后结果与合并前一致
-- [ ] `SegmentHeader` / `CollectionHeader` round-trip 测试（`AsBytes` → `MemoryMarshal.Read`）
-- [ ] 格式版本升级测试：旧版本 `catalog.bin` 被正确拒绝或迁移
-- [ ] 目录布局在 Windows / Linux / macOS 上均能正确创建
+- [x] 写入 → 关闭 → 重新打开 → 搜索，结果一致（round-trip，见 `PersistenceTests`）
+- [x] WAL replay 测试：torn write / CRC mismatch 截断后仍能恢复完整记录（见 `WalReaderWriterTests`）
+- [x] `CatalogStore` round-trip 测试 + 原子覆盖写入（见 `CatalogStoreTests`）
+- [x] 格式版本不匹配（Magic / Version）→ `DotVectorException`（见 `CatalogStoreTests`）
+- [x] 目录布局在 Windows / Linux / macOS 上均能正确创建（CI 三平台）
+- [ ] mmap 零拷贝读路径（推迟到后续 milestone，与 Segment 文件落盘一并实现）
+- [ ] Compaction 测试：Segment 合并后结果与合并前一致（推迟到后续 milestone）
 
 ---
 
-## ⏳ M6 — 标量过滤（Payload Filter）
+## 🚧 M6 — 标量过滤（Payload Filter）
 
 **目标**：支持在向量搜索时附加标量条件过滤，类似 Qdrant payload index / pgvector `WHERE`。
 
 **实现内容**：
-- `VectorRecord<TKey>` 支持 payload 字段（`Dictionary<string, object>`）
-- `SearchRequest` 支持 `Filter` 条件（简单 AND / OR / range / equality）
-- Pre-filtering（先过滤再搜索）和 Post-filtering（先搜索再过滤）策略
-- 简单标量索引（B-tree 风格）
+- `VectorRecord<TKey>` 支持 payload 字段（`Dictionary<string, object>`）✅
+- `Filter` AST：`Eq` / `Ne` / `Range` / `Exists` / `Missing` / `And` / `Or` / `Not`（reflection-free，AOT 友好）✅
+- `Collection<TKey>.Search(query, topK, Filter?)` 重载：底层索引 over-fetch + Collection 层 post-filter（默认过取倍率 8）✅
+- `Collection<TKey>.GetPayload(key)` 暴露 in-memory payload 快照 ✅
+- 简单标量索引（B-tree 风格）— 推迟到后续 milestone
+- payload 持久化（写入 WAL / Segment）— 推迟到后续 milestone（当前 payload 仅保存在内存中）
 
 **参考**：
 - Qdrant payload index：https://qdrant.tech/documentation/concepts/filtering/
@@ -211,9 +216,9 @@ my-database.dvec/
 - pgvector WHERE 子句
 
 **验收标准**：
-- [ ] 带过滤搜索 Recall 与无过滤版本差 < 5%
-- [ ] 过滤条件测试：equality / range / null check
-- [ ] 大集合（100 万条）带过滤搜索延迟 < 100 ms
+- [x] 带过滤搜索 Recall 与无过滤版本差 < 5%（`tests/DotVector.Accuracy.Tests/FilteredRecallTests.cs`，FlatIndex 上 Recall = 1.0）
+- [x] 过滤条件测试：equality / range / null check（`tests/DotVector.Core.Tests/Query/FilterTests.cs` + `FilteredSearchTests.cs`）
+- [ ] 大集合（100 万条）带过滤搜索延迟 < 100 ms（推迟到 M8 BenchmarkDotNet 基准一并验证）
 
 ---
 

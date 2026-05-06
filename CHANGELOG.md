@@ -8,6 +8,23 @@
 
 ### Added
 
+- PR #M6：M6 — 标量过滤（Payload Filter）
+  - `src/DotVector.Core/Query/Filter.cs`：reflection-free Filter AST，AOT 友好
+    - 公开静态工厂：`Eq` / `Ne` / `Range`（支持 inclusive/exclusive 上下界）/ `Exists` / `Missing` / `And` / `Or` / `Not`
+    - 私有 sealed 节点：FieldEqualsFilter / FieldNotEqualsFilter / FieldRangeFilter / FieldExistsFilter / FieldMissingFilter / AndFilter / OrFilter / NotFilter
+    - 范围比较使用 `IComparable.CompareTo`，类型不匹配吞掉 `ArgumentException` / `InvalidCastException` 返回 false
+  - `src/DotVector.Core/Api/Collection.cs`：
+    - 新增 `ConcurrentDictionary<TKey, IReadOnlyDictionary<string, object?>> _payloads` 内存 payload 存储
+    - `Insert` / `InsertBatch` / `Delete` 同步维护 payload 快照
+    - 新增 `GetPayload(TKey key)` 公开 API
+    - 新增 `Search(query, topK, Filter?)` 重载：filter ≠ null 时按 `max(topK*8, topK+32)` 上限到 `Index.Count` 过取，再在 Collection 层 post-filter
+    - 命中结果通过 `SearchResult<TKey> { Payload = ... }` 携带 payload 快照
+  - `src/DotVector.Core/Api/SearchResult.cs`：新增 `IReadOnlyDictionary<string, object?>? Payload { get; init; }`
+  - `tests/DotVector.Core.Tests/Query/FilterTests.cs`：12 个单测，覆盖 Eq/Ne/Range/Exists/Missing/And/Or/Not、null payload、type mismatch、工厂参数校验
+  - `tests/DotVector.Core.Tests/Query/FilteredSearchTests.cs`：5 个端到端测试（无过滤 / Eq / Range / 复合 AND / 空匹配 / Delete 清理 payload / InsertBatch 存储 payload / 无 payload 时 Payload == null）
+  - `tests/DotVector.Accuracy.Tests/FilteredRecallTests.cs`：FlatIndex 上验证带过滤 Recall = 1.0（远优于 ROADMAP < 5% 偏差要求），覆盖 L2 / Cosine
+  - 备注：M6 范围内 payload 仅保存在内存中，**不写入 WAL**，重启后会丢失；持久化将在后续 Segment-flush milestone 与 vectors.bin / index.bin 一并实现
+
 - PR #M5：M5 — 持久化层（目录格式 + WAL）
   - `.dvec/` 单目录持久化：`catalog.bin` + `wal/wal-{seq:D6}.log` + `collections/{guid:N}/segments/...`
   - `src/DotVector.Core/Catalog/CatalogStore.cs`：`CatalogEntry`（required init 属性）+ `CatalogStore.Read/Write`

@@ -29,4 +29,10 @@ public sealed class SearchResult<TKey>
     /// 对 InnerProduct/DotProduct 为相似度（越大越相似）。
     /// </summary>
     public float Score { get; }
+
+    /// <summary>
+    /// 命中记录的标量 payload（M6）。
+    /// 仅在调用方在 Insert 时提供 payload 时不为 <see langword="null"/>。
+    /// </summary>
+    public IReadOnlyDictionary<string, object?>? Payload { get; init; }
 }

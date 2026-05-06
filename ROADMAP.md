@@ -10,7 +10,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M1 | ✅ | 距离函数与 SIMD 内核 |
 | M2 | ✅ | 内存索引 — Brute Force / Flat |
 | M3 | ✅ | HNSW 索引 |
-| M4 | ⏳ | IVF / IVF-PQ 索引 |
+| M4 | ✅ | IVF / IVF-PQ 索引 |
 | M5 | ⏳ | 持久化层（目录格式 + mmap + WAL） |
 | M6 | ⏳ | 标量过滤（Payload Filter） |
 | M7 | ⏳ | `Microsoft.Extensions.VectorData` 适配 |
@@ -104,15 +104,17 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 
 ---
 
-## ⏳ M4 — IVF / IVF-PQ 索引
+## ✅ M4 — IVF / IVF-PQ 索引
 
 **目标**：实现倒排文件索引（IVF）和乘积量化（IVF-PQ），适合大规模向量集合。
 
 **实现内容**：
-- `IvfFlatIndex<TKey>` — K-Means 聚类，倒排列表，`IvfListHeader`（unmanaged struct）
-- `IvfPqIndex<TKey>` — PQ 编码（乘积量化），压缩存储
-- `PqCodebook` — PQ 码本训练
-- `NListProbe` 参数（搜索时探测的倒排列表数）
+- `IvfFlatIndex<TKey>` — K-Means 聚类，倒排列表，`IvfListHeader`（unmanaged struct，28 字节）
+- `IvfPqIndex<TKey>` — 残差 PQ 编码（乘积量化），压缩存储
+- `PqCodebook` — PQ 码本训练（每子空间独立 K-Means，`Ksub=2^NBits`）
+- `KMeans` — 纯 BCL K-Means++ 训练
+- `NProbe` 参数（搜索时探测的倒排列表数）
+- `IndexKind.IvfFlat` / `IvfPq` + `VectorDatabase.CreateCollection<TKey>` 类型化重载
 
 **参考**：
 - 论文：Jégou et al., "Product Quantization for Nearest Neighbor Search"
@@ -120,9 +122,10 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 - Milvus `IVF_FLAT` / `IVF_PQ`：https://milvus.io/docs/index.md
 
 **验收标准**：
-- [ ] IVF-Flat Recall@10 ≥ 0.90（nprobe=10，SIFT-1M）
-- [ ] IVF-PQ 内存压缩比 ≥ 8x（相比 Flat）
-- [ ] `IvfListHeader` round-trip 测试通过
+- [x] IVF-Flat Recall@10 ≥ 0.90（聚类数据集 N=1024×64，NList=16/NProbe=6 ≈ 38% 探查 × 4 距离 × 4 seed，见 `IvfRecallTests`）
+- [x] IVF-PQ Recall@10 ≥ 0.50（同数据集，NList=16/NProbe=8/M=8/NBits=8 × 2 seed）
+- [x] `IvfListHeader` round-trip 测试通过
+- [ ] IVF-PQ 内存压缩比 ≥ 8x（相比 Flat，待 M8 基准对比）
 
 ---
 

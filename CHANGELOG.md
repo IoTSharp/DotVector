@@ -8,6 +8,29 @@
 
 ### Added
 
+- PR #M4：M4 — IVF / IVF-PQ 倒排索引
+  - `src/DotVector.Core/Format/IvfListHeader.cs`：`[StructLayout(Sequential, Pack=1)]` `unmanaged struct`，28 字节固定布局，描述每个 IVF 倒排桶的元信息
+  - `src/DotVector.Core/Index/Ivf/IvfOptions.cs`：`IvfOptions`（`NList=64` / `NProbe=8` / `MaxIterations=25` / `Seed?`）+ `IvfPqOptions`（继承 `M=8` / `NBits=8`）+ `Validate()`
+  - `src/DotVector.Core/Index/Ivf/KMeans.cs`：纯 BCL K-Means++ 训练（`Train(data, count, dim, k, maxIterations, seed, out centroids, out assignments)`）+ `FindNearest`，使用 `TensorPrimitives` 计算距离
+  - `src/DotVector.Core/Index/Ivf/IvfFlatIndex.cs`：`IvfFlatIndex<TKey> : IIndex<TKey>, IDisposable`
+    - 首次 `Search` 触发自动训练（要求 N ≥ NList）；之后增量分配新向量到最近簇
+    - NProbe 簇并行扫描；与 FlatIndex 一致的 Top-K 堆约定（smaller-better 取 `-score`，larger-better 取 `+score`，`EnqueueDequeue`）
+    - `ReaderWriterLockSlim(NoRecursion)` 多读单写并发；`Remove` 使用 swap-with-last
+    - 拒绝 `Hamming`（`NotSupportedException`）
+  - `src/DotVector.Core/Compression/PqCodebook.cs`：PQ 子量化训练（每子空间独立 K-Means，`Ksub = 2^NBits = 256`）+ `Encode` / `BuildLut`
+  - `src/DotVector.Core/Index/Ivf/IvfPqIndex.cs`：`IvfPqIndex<TKey> : IIndex<TKey>, IDisposable`
+    - 残差量化（vector − centroid）+ PQ 子空间编码；首次 `Search` 训练（要求 N ≥ 256）
+    - 通过 PQ 距离查找表（LUT）做近似距离估计；命中向量直接以原始距离 rerank
+  - `src/DotVector.Core/Model/IndexKind.cs`：扩展 `IvfFlat=2` / `IvfPq=3`
+  - `src/DotVector.Core/Api/Collection.cs`：构造函数新增 `IvfOptions? ivfOptions` / `IvfPqOptions? ivfPqOptions`，按 `IndexKind` 分发到 IVF 实现
+  - `src/DotVector.Core/Api/VectorDatabase.cs`：新增类型化重载 `CreateCollection<TKey>(name, dim, metric, IvfOptions)` 和 `CreateCollection<TKey>(name, dim, metric, IvfPqOptions)`
+  - `tests/DotVector.Core.Tests/Index/Ivf/KMeansTests.cs`：K-Means 训练正确性 + `FindNearest` 单测
+  - `tests/DotVector.Core.Tests/Index/Ivf/IvfFlatIndexTests.cs`：9 个单测（Hamming 拒绝 / 维度校验 / 重复键 / Top-K 排序 4 距离 × Theory / Remove）
+  - `tests/DotVector.Core.Tests/Index/Ivf/IvfPqIndexTests.cs`：7 个单测（Hamming 拒绝 / dim%M 校验 / 维度校验 / 近似最近邻）
+  - `tests/DotVector.Accuracy.Tests/IvfRecallTests.cs`：聚类数据集（16 簇 / σ=0.3 高斯扰动）上的 Recall@10 验收
+    - IVF-Flat：N=1024×64，NList=16 / NProbe=6（≈38% 探查），4 种距离 × 4 seed，Recall@10 ≥ 0.90
+    - IVF-PQ：N=1024×64，NList=16 / NProbe=8 / M=8 / NBits=8，2 seed，Recall@10 ≥ 0.50
+
 - PR #M3：M3 — HNSW 图索引
   - `src/DotVector.Core/Index/Hnsw/HnswOptions.cs`：HNSW 参数（`M=16` / `EfConstruction=200` / `EfSearch=50` / `Seed`）+ `Default` + `Validate()`
   - `src/DotVector.Core/Format/HnswNodeHeader.cs`：`[StructLayout(Sequential, Pack=1)]` `unmanaged struct`，40 字节固定布局，含 `[InlineArray(16)]` `NeighborCounts16`

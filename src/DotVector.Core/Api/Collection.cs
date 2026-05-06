@@ -2,6 +2,7 @@ using System.Buffers;
 using DotVector.Core;
 using DotVector.Index.Flat;
 using DotVector.Index.Hnsw;
+using DotVector.Index.Ivf;
 using DotVector.Model;
 
 namespace DotVector.Api;
@@ -13,7 +14,7 @@ namespace DotVector.Api;
 /// <remarks>
 /// M2 实现：底层默认使用 <see cref="FlatIndex{TKey}"/>（线性扫描精确检索）。
 /// M3 起：可选用 <see cref="HnswIndex{TKey}"/>（图索引近似检索，召回率 ≥ 0.95）。
-/// TODO(M4): 支持切换到 IvfFlatIndex / IvfPqIndex（倒排聚类）。
+/// M4 起：可选用 <see cref="IvfFlatIndex{TKey}"/> / <see cref="IvfPqIndex{TKey}"/>（倒排聚类 + 乘积量化）。
 /// </remarks>
 public sealed class Collection<TKey> : IDisposable
     where TKey : notnull
@@ -29,12 +30,16 @@ public sealed class Collection<TKey> : IDisposable
     /// <param name="metric">距离度量类型。</param>
     /// <param name="indexKind">索引类型。</param>
     /// <param name="hnswOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.Hnsw"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
+    /// <param name="ivfOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.IvfFlat"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
+    /// <param name="ivfPqOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.IvfPq"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
     internal Collection(
         string name,
         int dimensions,
         Metric metric,
         IndexKind indexKind = IndexKind.Flat,
-        HnswOptions? hnswOptions = null)
+        HnswOptions? hnswOptions = null,
+        IvfOptions? ivfOptions = null,
+        IvfPqOptions? ivfPqOptions = null)
     {
         Name = name;
         Dimensions = dimensions;
@@ -44,6 +49,8 @@ public sealed class Collection<TKey> : IDisposable
         {
             IndexKind.Flat => new FlatIndex<TKey>(dimensions, metric),
             IndexKind.Hnsw => new HnswIndex<TKey>(dimensions, metric, hnswOptions),
+            IndexKind.IvfFlat => new IvfFlatIndex<TKey>(dimensions, metric, ivfOptions),
+            IndexKind.IvfPq => new IvfPqIndex<TKey>(dimensions, metric, ivfPqOptions),
             _ => throw new ArgumentOutOfRangeException(nameof(indexKind), indexKind, "未支持的索引类型。"),
         };
     }

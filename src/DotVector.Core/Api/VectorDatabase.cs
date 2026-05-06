@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using DotVector.Index.Hnsw;
+using DotVector.Index.Ivf;
 using DotVector.Model;
 
 namespace DotVector.Api;
@@ -85,6 +86,66 @@ public sealed class VectorDatabase : IDisposable
         ThrowIfDisposed();
 
         var collection = new Collection<TKey>(name, dimensions, metric, indexKind, hnswOptions);
+        if (!_collections.TryAdd(name, collection))
+        {
+            collection.Dispose();
+            throw new InvalidOperationException($"集合 '{name}' 已存在。");
+        }
+        return collection;
+    }
+
+    /// <summary>
+    /// 创建使用 IVF-Flat 索引的集合。
+    /// </summary>
+    /// <typeparam name="TKey">记录主键类型。</typeparam>
+    /// <param name="name">集合名称，在同一数据库内唯一。</param>
+    /// <param name="dimensions">向量维度。</param>
+    /// <param name="metric">距离度量类型。</param>
+    /// <param name="options">IVF-Flat 参数。</param>
+    /// <returns>新建的集合实例。</returns>
+    public Collection<TKey> CreateCollection<TKey>(
+        string name,
+        int dimensions,
+        Metric metric,
+        IvfOptions options)
+        where TKey : notnull
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimensions);
+        ArgumentNullException.ThrowIfNull(options);
+        ThrowIfDisposed();
+
+        var collection = new Collection<TKey>(name, dimensions, metric, IndexKind.IvfFlat, hnswOptions: null, ivfOptions: options);
+        if (!_collections.TryAdd(name, collection))
+        {
+            collection.Dispose();
+            throw new InvalidOperationException($"集合 '{name}' 已存在。");
+        }
+        return collection;
+    }
+
+    /// <summary>
+    /// 创建使用 IVF-PQ 索引的集合。
+    /// </summary>
+    /// <typeparam name="TKey">记录主键类型。</typeparam>
+    /// <param name="name">集合名称，在同一数据库内唯一。</param>
+    /// <param name="dimensions">向量维度（必须能被 <see cref="IvfPqOptions.M"/> 整除）。</param>
+    /// <param name="metric">距离度量类型。</param>
+    /// <param name="options">IVF-PQ 参数。</param>
+    /// <returns>新建的集合实例。</returns>
+    public Collection<TKey> CreateCollection<TKey>(
+        string name,
+        int dimensions,
+        Metric metric,
+        IvfPqOptions options)
+        where TKey : notnull
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimensions);
+        ArgumentNullException.ThrowIfNull(options);
+        ThrowIfDisposed();
+
+        var collection = new Collection<TKey>(name, dimensions, metric, IndexKind.IvfPq, hnswOptions: null, ivfPqOptions: options);
         if (!_collections.TryAdd(name, collection))
         {
             collection.Dispose();

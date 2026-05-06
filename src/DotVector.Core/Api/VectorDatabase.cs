@@ -1,46 +1,133 @@
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using DotVector.Catalog;
+using DotVector.Exceptions;
 using DotVector.Index.Hnsw;
 using DotVector.Index.Ivf;
+using DotVector.IO;
 using DotVector.Model;
+using DotVector.Storage;
+using DotVector.Wal;
 
 namespace DotVector.Api;
 
 /// <summary>
 /// DotVector 嵌入式向量数据库的顶层入口。
-/// 管理多个向量集合（Collection），支持进程内嵌入式运行。
+/// 管理多个向量集合（Collection），支持进程内嵌入式运行，
+/// 可选基于 <c>.dvec/</c> 目录的持久化（M5）。
 /// </summary>
-/// <remarks>
-/// M2 实现：纯内存数据库，多集合通过线程安全字典管理；每个集合内部使用
-/// <see cref="DotVector.Index.Flat.FlatIndex{TKey}"/>（多读单写并发）。
-/// TODO(M5): 实现基于目录（.dvec/）的持久化存储（catalog.bin + WAL + Segment mmap）。
-/// </remarks>
 public sealed class VectorDatabase : IDisposable
 {
     private readonly ConcurrentDictionary<string, IDisposable> _collections =
         new(StringComparer.Ordinal);
-    private readonly string? _directoryPath;
+    private readonly PersistentDirectory? _persistent;
     private bool _disposed;
 
     /// <summary>
-    /// 创建一个纯内存的 <see cref="VectorDatabase"/> 实例。
-    /// 数据不会持久化，进程退出后丢失。
+    /// 创建一个纯内存的 <see cref="VectorDatabase"/> 实例。数据不会持久化。
     /// </summary>
     public VectorDatabase()
     {
     }
 
     /// <summary>
-    /// 创建或打开指定路径的持久化向量数据库目录（.dvec/）。
+    /// 创建或打开指定路径的持久化向量数据库目录（<c>.dvec/</c>）。
     /// </summary>
-    /// <param name="directoryPath">数据库目录路径，例如 "my-db.dvec"。</param>
+    /// <param name="directoryPath">数据库目录路径，例如 <c>"my-db.dvec"</c>。</param>
     /// <remarks>
-    /// TODO(M5): 实现目录持久化逻辑（catalog.bin + WAL + Segment mmap）。
+    /// 启动流程：
+    /// <list type="number">
+    ///   <item>确保 <c>.dvec/wal/</c> 与 <c>.dvec/collections/</c> 子目录存在。</item>
+    ///   <item>从 <c>catalog.bin</c> 加载所有集合元数据。</item>
+    ///   <item>对每个集合按 <see cref="KeyTypeCode"/> 构造 <see cref="Collection{TKey}"/>，
+    ///         并回放 WAL 中属于该集合的所有有效记录。</item>
+    /// </list>
     /// </remarks>
     public VectorDatabase(string directoryPath)
     {
         ArgumentException.ThrowIfNullOrEmpty(directoryPath);
-        _directoryPath = directoryPath;
-        // TODO(M5): 打开或创建目录，读取 catalog.bin，replay WAL
+        _persistent = PersistentDirectory.Open(directoryPath);
+        RestoreFromCatalog();
+    }
+
+    private void RestoreFromCatalog()
+    {
+        if (_persistent is null) return;
+        foreach (CatalogEntry entry in _persistent.Entries)
+        {
+            switch (entry.KeyType)
+            {
+                case KeyTypeCode.Int32:
+                    RestoreCollectionTyped<int>(entry);
+                    break;
+                case KeyTypeCode.Int64:
+                    RestoreCollectionTyped<long>(entry);
+                    break;
+                case KeyTypeCode.Guid:
+                    RestoreCollectionTyped<Guid>(entry);
+                    break;
+                case KeyTypeCode.String:
+                    RestoreCollectionTyped<string>(entry);
+                    break;
+                default:
+                    throw new DotVectorException($"不支持的 KeyType：{entry.KeyType}");
+            }
+        }
+    }
+
+    private void RestoreCollectionTyped<TKey>(CatalogEntry entry) where TKey : notnull
+    {
+        var collection = new Collection<TKey>(entry.Name, entry.Dimensions, entry.Metric, entry.IndexKind);
+        // 先回放 WAL（不附加 sink，避免回写）
+        ReplayWalInto(collection, entry);
+        // 再附加 sink，后续操作走 WAL
+        collection.AttachWriteSink(_persistent!.CreateSink<TKey>(entry.CollectionId));
+        _collections[entry.Name] = collection;
+    }
+
+    private void ReplayWalInto<TKey>(Collection<TKey> collection, CatalogEntry entry) where TKey : notnull
+    {
+        if (_persistent is null) return;
+        foreach (WalRecord record in _persistent.ReadWalFor(entry.CollectionId))
+        {
+            ReadOnlySpan<byte> body = record.Body;
+            SpanReader reader = new(body);
+            KeyTypeCode code = (KeyTypeCode)reader.ReadByte();
+            if (code != entry.KeyType)
+            {
+                throw new DotVectorException(
+                    $"WAL 记录键类型 {code} 与集合 '{entry.Name}' 的 {entry.KeyType} 不一致。");
+            }
+            TKey key = KeyCodec.Read<TKey>(ref reader);
+
+            switch (record.Type)
+            {
+                case WalRecordType.Insert:
+                {
+                    uint dim = reader.ReadUInt32();
+                    if ((int)dim != entry.Dimensions)
+                    {
+                        throw new DotVectorException(
+                            $"WAL 记录维度 {dim} 与集合 '{entry.Name}' 的 {entry.Dimensions} 不一致。");
+                    }
+                    int byteCount = (int)dim * sizeof(float);
+                    ReadOnlySpan<byte> vecBytes = reader.ReadBytes(byteCount);
+                    float[] vector = new float[dim];
+                    for (int i = 0; i < dim; i++)
+                    {
+                        vector[i] = BinaryPrimitives.ReadSingleLittleEndian(
+                            vecBytes.Slice(i * sizeof(float), sizeof(float)));
+                    }
+                    collection.Insert(new VectorRecord<TKey>(key, vector));
+                    break;
+                }
+                case WalRecordType.Delete:
+                    collection.Delete(key);
+                    break;
+                default:
+                    throw new DotVectorException($"未知 WAL 记录类型：{record.Type}");
+            }
+        }
     }
 
     /// <summary>当前注册的集合数量。</summary>
@@ -54,7 +141,6 @@ public sealed class VectorDatabase : IDisposable
     /// <param name="dimensions">向量维度（如 384 / 768 / 1536）。</param>
     /// <param name="metric">距离度量类型，默认为 <see cref="Metric.Cosine"/>。</param>
     /// <returns>新建的集合实例。</returns>
-    /// <exception cref="InvalidOperationException">同名集合已存在。</exception>
     public Collection<TKey> CreateCollection<TKey>(
         string name,
         int dimensions,
@@ -69,10 +155,8 @@ public sealed class VectorDatabase : IDisposable
     /// <param name="name">集合名称，在同一数据库内唯一。</param>
     /// <param name="dimensions">向量维度。</param>
     /// <param name="metric">距离度量类型。</param>
-    /// <param name="indexKind">索引类型（<see cref="IndexKind.Flat"/> 或 <see cref="IndexKind.Hnsw"/>）。</param>
-    /// <param name="hnswOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.Hnsw"/> 时使用的参数；为 <see langword="null"/> 时使用 <see cref="HnswOptions.Default"/>。</param>
-    /// <returns>新建的集合实例。</returns>
-    /// <exception cref="InvalidOperationException">同名集合已存在。</exception>
+    /// <param name="indexKind">索引类型。</param>
+    /// <param name="hnswOptions">当 <paramref name="indexKind"/> 为 HNSW 时使用的参数。</param>
     public Collection<TKey> CreateCollection<TKey>(
         string name,
         int dimensions,
@@ -86,23 +170,12 @@ public sealed class VectorDatabase : IDisposable
         ThrowIfDisposed();
 
         var collection = new Collection<TKey>(name, dimensions, metric, indexKind, hnswOptions);
-        if (!_collections.TryAdd(name, collection))
-        {
-            collection.Dispose();
-            throw new InvalidOperationException($"集合 '{name}' 已存在。");
-        }
+        RegisterAndAttach(name, dimensions, metric, indexKind, collection);
         return collection;
     }
 
-    /// <summary>
-    /// 创建使用 IVF-Flat 索引的集合。
-    /// </summary>
+    /// <summary>创建使用 IVF-Flat 索引的集合。</summary>
     /// <typeparam name="TKey">记录主键类型。</typeparam>
-    /// <param name="name">集合名称，在同一数据库内唯一。</param>
-    /// <param name="dimensions">向量维度。</param>
-    /// <param name="metric">距离度量类型。</param>
-    /// <param name="options">IVF-Flat 参数。</param>
-    /// <returns>新建的集合实例。</returns>
     public Collection<TKey> CreateCollection<TKey>(
         string name,
         int dimensions,
@@ -116,23 +189,12 @@ public sealed class VectorDatabase : IDisposable
         ThrowIfDisposed();
 
         var collection = new Collection<TKey>(name, dimensions, metric, IndexKind.IvfFlat, hnswOptions: null, ivfOptions: options);
-        if (!_collections.TryAdd(name, collection))
-        {
-            collection.Dispose();
-            throw new InvalidOperationException($"集合 '{name}' 已存在。");
-        }
+        RegisterAndAttach(name, dimensions, metric, IndexKind.IvfFlat, collection);
         return collection;
     }
 
-    /// <summary>
-    /// 创建使用 IVF-PQ 索引的集合。
-    /// </summary>
+    /// <summary>创建使用 IVF-PQ 索引的集合。</summary>
     /// <typeparam name="TKey">记录主键类型。</typeparam>
-    /// <param name="name">集合名称，在同一数据库内唯一。</param>
-    /// <param name="dimensions">向量维度（必须能被 <see cref="IvfPqOptions.M"/> 整除）。</param>
-    /// <param name="metric">距离度量类型。</param>
-    /// <param name="options">IVF-PQ 参数。</param>
-    /// <returns>新建的集合实例。</returns>
     public Collection<TKey> CreateCollection<TKey>(
         string name,
         int dimensions,
@@ -146,12 +208,37 @@ public sealed class VectorDatabase : IDisposable
         ThrowIfDisposed();
 
         var collection = new Collection<TKey>(name, dimensions, metric, IndexKind.IvfPq, hnswOptions: null, ivfPqOptions: options);
+        RegisterAndAttach(name, dimensions, metric, IndexKind.IvfPq, collection);
+        return collection;
+    }
+
+    private void RegisterAndAttach<TKey>(
+        string name,
+        int dimensions,
+        Metric metric,
+        IndexKind indexKind,
+        Collection<TKey> collection) where TKey : notnull
+    {
         if (!_collections.TryAdd(name, collection))
         {
             collection.Dispose();
             throw new InvalidOperationException($"集合 '{name}' 已存在。");
         }
-        return collection;
+
+        if (_persistent is not null)
+        {
+            try
+            {
+                Guid id = _persistent.RegisterCollection<TKey>(name, dimensions, metric, indexKind);
+                collection.AttachWriteSink(_persistent.CreateSink<TKey>(id));
+            }
+            catch
+            {
+                _collections.TryRemove(name, out _);
+                collection.Dispose();
+                throw;
+            }
+        }
     }
 
     /// <summary>
@@ -160,8 +247,6 @@ public sealed class VectorDatabase : IDisposable
     /// <typeparam name="TKey">期望的主键类型。</typeparam>
     /// <param name="name">集合名称。</param>
     /// <returns>集合实例。</returns>
-    /// <exception cref="KeyNotFoundException">集合不存在。</exception>
-    /// <exception cref="InvalidOperationException">集合存在但 TKey 与创建时不一致。</exception>
     public Collection<TKey> GetCollection<TKey>(string name)
         where TKey : notnull
     {
@@ -193,6 +278,7 @@ public sealed class VectorDatabase : IDisposable
         if (_collections.TryRemove(name, out IDisposable? entry))
         {
             entry.Dispose();
+            _persistent?.UnregisterCollection(name);
             return true;
         }
         return false;
@@ -207,12 +293,12 @@ public sealed class VectorDatabase : IDisposable
         foreach (KeyValuePair<string, IDisposable> kv in _collections)
         {
             try { kv.Value.Dispose(); }
-            catch { /* 忽略单个集合 Dispose 异常，确保其余资源能继续释放 */ }
+            catch { /* 忽略单个集合 Dispose 异常 */ }
         }
         _collections.Clear();
 
-        // TODO(M5): 释放 mmap 句柄，flush MemTable，关闭目录句柄。
-        _ = _directoryPath; // 保持字段以便 M5 使用。
+        try { _persistent?.Dispose(); }
+        catch { /* 关闭阶段忽略 */ }
     }
 
     private void ThrowIfDisposed()

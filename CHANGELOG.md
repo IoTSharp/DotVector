@@ -8,6 +8,51 @@
 
 ### Added
 
+- PR #M5：M5 — 持久化层（目录格式 + WAL）
+  - `.dvec/` 单目录持久化：`catalog.bin` + `wal/wal-{seq:D6}.log` + `collections/{guid:N}/segments/...`
+  - `src/DotVector.Core/Catalog/CatalogStore.cs`：`CatalogEntry`（required init 属性）+ `CatalogStore.Read/Write`
+    - 文件头 `MagicBytes = "DOTVEC\0\0"u8` + `CurrentVersion = 1`，所有多字节字段 little-endian
+    - 原子写入：`.tmp` + `Flush(flushToDisk:true)` + `File.Move(overwrite:true)`
+    - Magic / Version 不匹配抛出 `DotVectorException`
+  - `src/DotVector.Core/Wal/WalRecord.cs`：`WalRecordType { None, Insert, Delete }` + `WalRecord` 只读结构体
+  - `src/DotVector.Core/Wal/WalWriter.cs`：单文件追加式写入器
+    - 记录格式：`u32 bodyLen + body + u32 crc32(body)`
+    - body：`u8 type + Guid collId + u8 keyTypeCode + key bytes + (Insert: u32 dim + dim*4 字节)`
+    - `lock(_lock)` 串行写入；`FileShare.Read` 允许并发读取（崩溃恢复）
+  - `src/DotVector.Core/Wal/WalReader.cs`：`ReadAll` / `ReadFile`
+    - 截断尾部记录（torn write）→ 停止读取
+    - CRC32 校验失败 → 停止读取
+    - `FileShare.ReadWrite | FileShare.Delete` 允许同进程内并发写入
+  - `src/DotVector.Core/IO/KeyCodec.cs`：`KeyTypeCode` + 通用 key 编解码（Int32/Int64/Guid/String，UTF-8 长度前缀）
+    - `Write<TKey>(scoped ref SpanWriter, TKey)` / `Read<TKey>(ref SpanReader)` / `ComputeSize` / `GetCode`
+  - `src/DotVector.Core/IO/SpanReader.cs`：新增 `ref struct SpanWriter`（与 `SpanReader` 配套），`WriteBytes(scoped ReadOnlySpan<byte>)`
+  - `src/DotVector.Core/Storage/PersistentDirectory.cs`：目录管理 + WAL 写入器复用 + `IWriteSink<TKey>` 注入
+    - `Open(directoryPath)` → 创建子目录 + 读 catalog
+    - `RegisterCollection` / `UnregisterCollection` / `CreateSink<TKey>` / `ReadWalFor`
+    - `Dispose` 关闭并刷新 WAL 句柄
+  - `src/DotVector.Core/Api/Collection.cs`：新增 `internal void AttachWriteSink(IWriteSink<TKey>?)`，`Insert` / `Delete` 在写索引前回调 sink 落 WAL
+  - `src/DotVector.Core/Api/VectorDatabase.cs`：新增 `VectorDatabase(string directoryPath)` 构造函数
+    - 启动时按 catalog 重建集合并回放 WAL（按 KeyType 分发到泛型 `RestoreCollectionTyped<TKey>`）
+    - 重放完成后再 `AttachWriteSink`，避免回放阶段触发 WAL 重复写入
+    - `CreateCollection` / `DropCollection` 同步 catalog
+  - `tests/DotVector.Core.Tests/Persistence/WalReaderWriterTests.cs`：5 个单测
+    - Insert/Delete round-trip（Int32 key）
+    - 多 key 类型 round-trip（long/Guid/string，Theory）
+    - Torn write（截断尾部 5 字节）→ 仅读到完整记录
+    - CRC mismatch（翻转 body 字节）→ 停止读取
+    - 空目录 → 0 条记录
+  - `tests/DotVector.Core.Tests/Persistence/CatalogStoreTests.cs`：4 个单测
+    - 多条 entry round-trip（含中文 collection name）
+    - 不存在文件 → 空列表
+    - Bad magic → `DotVectorException`
+    - 原子覆盖写入：第二次写入后第一份内容消失，且无 `.tmp` 残留
+  - `tests/DotVector.Core.Tests/Persistence/PersistenceTests.cs`：5 个端到端测试
+    - Open → Insert → Dispose → Reopen 数据保持一致
+    - Delete 通过 WAL 重放恢复
+    - DropCollection 跨 reopen 持久生效
+    - 4 种 key 类型（int/long/Guid/string）共存且独立重建
+    - 验证目录结构（`wal/` / `collections/` / `catalog.bin`）
+
 - PR #M4：M4 — IVF / IVF-PQ 倒排索引
   - `src/DotVector.Core/Format/IvfListHeader.cs`：`[StructLayout(Sequential, Pack=1)]` `unmanaged struct`，28 字节固定布局，描述每个 IVF 倒排桶的元信息
   - `src/DotVector.Core/Index/Ivf/IvfOptions.cs`：`IvfOptions`（`NList=64` / `NProbe=8` / `MaxIterations=25` / `Seed?`）+ `IvfPqOptions`（继承 `M=8` / `NBits=8`）+ `Validate()`

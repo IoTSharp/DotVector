@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using DotVector.Exceptions;
 using DotVector.Model;
 
@@ -15,6 +17,7 @@ namespace DotVector.IO;
 public ref struct SpanReader
 {
     private ReadOnlySpan<byte> _remaining;
+    private readonly int _initialLength;
 
     /// <summary>
     /// 使用指定的字节 span 初始化 <see cref="SpanReader"/>。
@@ -23,10 +26,14 @@ public ref struct SpanReader
     public SpanReader(ReadOnlySpan<byte> data)
     {
         _remaining = data;
+        _initialLength = data.Length;
     }
 
     /// <summary>剩余未读字节数。</summary>
     public int Remaining => _remaining.Length;
+
+    /// <summary>已读取的字节数（即当前位置）。</summary>
+    public int Position => _initialLength - _remaining.Length;
 
     /// <summary>
     /// 读取一个 <see cref="uint"/>（little-endian）。
@@ -76,6 +83,73 @@ public ref struct SpanReader
         _remaining = _remaining[count..];
         return result;
     }
+
+    /// <summary>读取一个字节。</summary>
+    public byte ReadByte()
+    {
+        if (_remaining.Length < 1)
+        {
+            throw new DotVectorException("缓冲区不足：需要 1 字节。");
+        }
+        byte v = _remaining[0];
+        _remaining = _remaining[1..];
+        return v;
+    }
+
+    /// <summary>读取一个 <see cref="ushort"/>（little-endian）。</summary>
+    public ushort ReadUInt16()
+    {
+        if (_remaining.Length < sizeof(ushort))
+        {
+            throw new DotVectorException($"缓冲区不足：需要 {sizeof(ushort)} 字节。");
+        }
+        ushort v = BinaryPrimitives.ReadUInt16LittleEndian(_remaining);
+        _remaining = _remaining[sizeof(ushort)..];
+        return v;
+    }
+
+    /// <summary>读取一个 <see cref="int"/>（little-endian）。</summary>
+    public int ReadInt32()
+    {
+        if (_remaining.Length < sizeof(int))
+        {
+            throw new DotVectorException($"缓冲区不足：需要 {sizeof(int)} 字节。");
+        }
+        int v = BinaryPrimitives.ReadInt32LittleEndian(_remaining);
+        _remaining = _remaining[sizeof(int)..];
+        return v;
+    }
+
+    /// <summary>读取一个 <see cref="long"/>（little-endian）。</summary>
+    public long ReadInt64()
+    {
+        if (_remaining.Length < sizeof(long))
+        {
+            throw new DotVectorException($"缓冲区不足：需要 {sizeof(long)} 字节。");
+        }
+        long v = BinaryPrimitives.ReadInt64LittleEndian(_remaining);
+        _remaining = _remaining[sizeof(long)..];
+        return v;
+    }
+
+    /// <summary>读取一个 <see cref="float"/>（little-endian）。</summary>
+    public float ReadSingle()
+    {
+        if (_remaining.Length < sizeof(float))
+        {
+            throw new DotVectorException($"缓冲区不足：需要 {sizeof(float)} 字节。");
+        }
+        float v = BinaryPrimitives.ReadSingleLittleEndian(_remaining);
+        _remaining = _remaining[sizeof(float)..];
+        return v;
+    }
+
+    /// <summary>读取一个 <see cref="Guid"/>（按 .NET 标准 16 字节格式）。</summary>
+    public Guid ReadGuid()
+    {
+        ReadOnlySpan<byte> bytes = ReadBytes(16);
+        return new Guid(bytes);
+    }
 }
 
 /// <summary>
@@ -122,5 +196,64 @@ public ref struct SpanWriter
         System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(_remaining, value);
         _remaining = _remaining[sizeof(ulong)..];
         _written += sizeof(ulong);
+    }
+
+    /// <summary>写入一个字节。</summary>
+    public void WriteByte(byte value)
+    {
+        _remaining[0] = value;
+        _remaining = _remaining[1..];
+        _written += 1;
+    }
+
+    /// <summary>写入一个 <see cref="ushort"/>（little-endian）。</summary>
+    public void WriteUInt16(ushort value)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(_remaining, value);
+        _remaining = _remaining[sizeof(ushort)..];
+        _written += sizeof(ushort);
+    }
+
+    /// <summary>写入一个 <see cref="int"/>（little-endian）。</summary>
+    public void WriteInt32(int value)
+    {
+        BinaryPrimitives.WriteInt32LittleEndian(_remaining, value);
+        _remaining = _remaining[sizeof(int)..];
+        _written += sizeof(int);
+    }
+
+    /// <summary>写入一个 <see cref="long"/>（little-endian）。</summary>
+    public void WriteInt64(long value)
+    {
+        BinaryPrimitives.WriteInt64LittleEndian(_remaining, value);
+        _remaining = _remaining[sizeof(long)..];
+        _written += sizeof(long);
+    }
+
+    /// <summary>写入一个 <see cref="float"/>（little-endian）。</summary>
+    public void WriteSingle(float value)
+    {
+        BinaryPrimitives.WriteSingleLittleEndian(_remaining, value);
+        _remaining = _remaining[sizeof(float)..];
+        _written += sizeof(float);
+    }
+
+    /// <summary>写入一个 <see cref="Guid"/>（按 .NET 标准 16 字节格式）。</summary>
+    public void WriteGuid(Guid value)
+    {
+        if (!value.TryWriteBytes(_remaining))
+        {
+            throw new DotVectorException("缓冲区不足：写入 Guid 需要 16 字节。");
+        }
+        _remaining = _remaining[16..];
+        _written += 16;
+    }
+
+    /// <summary>写入指定字节序列。</summary>
+    public void WriteBytes(scoped ReadOnlySpan<byte> bytes)
+    {
+        bytes.CopyTo(_remaining);
+        _remaining = _remaining[bytes.Length..];
+        _written += bytes.Length;
     }
 }

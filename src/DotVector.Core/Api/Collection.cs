@@ -4,6 +4,7 @@ using DotVector.Index.Flat;
 using DotVector.Index.Hnsw;
 using DotVector.Index.Ivf;
 using DotVector.Model;
+using DotVector.Storage;
 
 namespace DotVector.Api;
 
@@ -20,6 +21,7 @@ public sealed class Collection<TKey> : IDisposable
     where TKey : notnull
 {
     private readonly IIndex<TKey> _index;
+    private IWriteSink<TKey>? _writeSink;
     private bool _disposed;
 
     /// <summary>
@@ -55,6 +57,13 @@ public sealed class Collection<TKey> : IDisposable
         };
     }
 
+    /// <summary>
+    /// 设置写入观察者（仅供持久化层 <see cref="DotVector.Storage.PersistentDirectory"/> 使用）。
+    /// 设置后，<see cref="Insert"/> / <see cref="InsertBatch"/> / <see cref="Delete"/>
+    /// 会在修改索引之前先通知 sink。回放期间应保持为 <see langword="null"/> 以避免重复写 WAL。
+    /// </summary>
+    internal void AttachWriteSink(IWriteSink<TKey>? sink) => _writeSink = sink;
+
     /// <summary>集合名称。</summary>
     public string Name { get; }
 
@@ -79,6 +88,7 @@ public sealed class Collection<TKey> : IDisposable
     {
         ArgumentNullException.ThrowIfNull(record);
         ThrowIfDisposed();
+        _writeSink?.OnInsert(record.Key, record.Vector);
         _index.Add(record.Key, record.Vector);
     }
 
@@ -120,6 +130,15 @@ public sealed class Collection<TKey> : IDisposable
             r.Vector.AsSpan().CopyTo(dst.Slice(i * Dimensions, Dimensions));
         }
 
+        if (_writeSink is not null)
+        {
+            ReadOnlySpan<float> srcSink = packed;
+            for (int i = 0; i < n; i++)
+            {
+                _writeSink.OnInsert(keys[i], srcSink.Slice(i * Dimensions, Dimensions));
+            }
+        }
+
         if (_index is FlatIndex<TKey> flat)
         {
             flat.AddBatch(keys, packed);
@@ -143,6 +162,7 @@ public sealed class Collection<TKey> : IDisposable
     {
         ArgumentNullException.ThrowIfNull(key);
         ThrowIfDisposed();
+        _writeSink?.OnDelete(key);
         return _index.Remove(key);
     }
 

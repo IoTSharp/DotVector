@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- BenchmarkDotNet 大量反射，AOT 分析不适用 -->
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DotVector\DotVector.csproj" />
+    <ProjectReference Include="..\..\src\DotVector.Core\DotVector.Core.csproj" />
+  </ItemGroup>
+
+</Project>

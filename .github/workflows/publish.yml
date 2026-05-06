@@ -1,0 +1,54 @@
+name: Publish NuGet
+
+# 触发条件：GitHub Release 发布时
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  publish:
+    name: Pack & Push NuGet
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore DotVector.slnx
+
+      - name: Build
+        run: dotnet build DotVector.slnx --configuration Release --no-restore
+
+      - name: Pack
+        run: |
+          dotnet pack src/DotVector/DotVector.csproj \
+            --configuration Release \
+            --no-build \
+            --output ./nupkgs \
+            -p:PackageVersion=${{ github.event.release.tag_name || '0.1.0' }}
+
+      # Push 步骤：在 M0 骨架阶段暂时注释，待 API 稳定后启用
+      # - name: Push to NuGet
+      #   run: |
+      #     dotnet nuget push ./nupkgs/*.nupkg \
+      #       --api-key ${{ secrets.NUGET_API_KEY }} \
+      #       --source https://api.nuget.org/v3/index.json \
+      #       --skip-duplicate
+
+      - name: Upload nupkg artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs
+          path: ./nupkgs

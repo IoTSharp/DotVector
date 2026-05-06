@@ -1,0 +1,11 @@
+version: '3.8'
+
+# docker-compose.override.yml — 本地开发覆盖配置
+# TODO(M9): 实现本地开发环境覆盖（如调试端口、本地卷挂载）
+
+services:
+  dotvector:
+    environment:
+      - DOTVECTOR_LOG_LEVEL=Debug
+    ports:
+      - "50051:50051"

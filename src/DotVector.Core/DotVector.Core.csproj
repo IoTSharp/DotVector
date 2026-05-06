@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>DotVector.Core</AssemblyName>
+    <RootNamespace>DotVector.Core</RootNamespace>
+    <!-- 抽象与共享接口层，仅依赖 BCL -->
+  </PropertyGroup>
+
+</Project>

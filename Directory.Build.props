@@ -1,0 +1,31 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <PackageVersion Condition="'$(PackageVersion)' == ''">$(VersionPrefix)</PackageVersion>
+    <Version Condition="'$(Version)' == ''">$(PackageVersion)</Version>
+    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">0.1.0.0</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)' == ''">0.1.0.0</FileVersion>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</InformationalVersion>
+    <!--
+      AOT / Trim 分析：核心库与生产程序集启用，测试与基准项目通过本地 csproj 显式关闭。
+      启用 IsAotCompatible 会自动开 EnableTrimAnalyzer + EnableAotAnalyzer，
+      从而在 build 阶段就把 IL2026 / IL3050 等暴露出来。
+    -->
+    <IsAotCompatible Condition="'$(IsAotCompatible)' == ''">true</IsAotCompatible>
+    <Authors>maikebing</Authors>
+    <Product>DotVector</Product>
+    <Copyright>Copyright (c) maikebing</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/IoTSharp/DotVector</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/IoTSharp/DotVector</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>dotvector;vector;ann;hnsw;ivf;embedding;rag;embedded</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <RepositoryCommit Condition="'$(GITHUB_SHA)' != ''">$(GITHUB_SHA)</RepositoryCommit>
+  </PropertyGroup>
+</Project>

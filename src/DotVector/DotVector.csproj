@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>DotVector</AssemblyName>
+    <RootNamespace>DotVector</RootNamespace>
+    <!-- 核心库：零第三方运行时依赖，允许 System.Numerics.Tensors（BCL 体系） -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Numerics.Tensors" />
+  </ItemGroup>
+
+</Project>

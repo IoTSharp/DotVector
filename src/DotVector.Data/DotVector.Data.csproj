@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>DotVector.Data</AssemblyName>
+    <RootNamespace>DotVector.Data</RootNamespace>
+    <!-- Microsoft.Extensions.VectorData 适配层（M7） -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotVector\DotVector.csproj" />
+    <ProjectReference Include="..\DotVector.Core\DotVector.Core.csproj" />
+  </ItemGroup>
+
+</Project>

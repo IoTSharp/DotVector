@@ -1,0 +1,87 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{csproj,props,targets,xml}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.cs]
+charset = unset
+
+# Naming rules
+dotnet_naming_rule.private_static_fields_are_allowed.severity = none
+dotnet_naming_rule.private_static_fields_are_allowed.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields_are_allowed.style = camel_case_underscore_prefix
+
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
+
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = warning
+dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case.style = camel_case_underscore_prefix
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.camel_case_underscore_prefix.capitalization = camel_case
+dotnet_naming_style.camel_case_underscore_prefix.required_prefix = _
+
+# Code style
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# File header
+file_header_template =
+
+[src/DotVector.Core/**/*.cs]
+# DotVector.Core 热路径性能 analyzer
+dotnet_diagnostic.CA1825.severity = warning
+dotnet_diagnostic.CA1826.severity = warning
+dotnet_diagnostic.CA1827.severity = warning
+dotnet_diagnostic.CA1828.severity = warning
+dotnet_diagnostic.CA1829.severity = warning
+dotnet_diagnostic.CA1841.severity = warning
+dotnet_diagnostic.CA1854.severity = warning
+dotnet_diagnostic.CA1860.severity = warning
+dotnet_diagnostic.CA1861.severity = warning
+dotnet_diagnostic.CA1864.severity = warning
+dotnet_diagnostic.CA1869.severity = warning
+dotnet_diagnostic.CA1870.severity = warning
+
+dotnet_diagnostic.CA1834.severity = suggestion
+dotnet_diagnostic.CA1835.severity = suggestion
+dotnet_diagnostic.CA1845.severity = suggestion
+dotnet_diagnostic.CA1846.severity = suggestion
+dotnet_diagnostic.CA1847.severity = suggestion
+dotnet_diagnostic.CA1850.severity = suggestion
+dotnet_diagnostic.CA1851.severity = suggestion
+dotnet_diagnostic.CA1859.severity = suggestion
+dotnet_code_quality.CA1859.api_surface = private, internal
+dotnet_diagnostic.CA1862.severity = suggestion
+dotnet_diagnostic.CA1865.severity = suggestion
+dotnet_diagnostic.CA1866.severity = suggestion
+dotnet_diagnostic.CA1867.severity = suggestion
+dotnet_diagnostic.CA1307.severity = suggestion
+dotnet_diagnostic.CA1309.severity = suggestion

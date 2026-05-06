@@ -1,0 +1,23 @@
+version: '3.8'
+
+# docker-compose.yml — DotVector 服务编排占位
+# 将在 M9 中实现：DotVector.Cli gRPC server 模式 + Native AOT 容器镜像
+#
+# TODO(M9): 实现 DotVector gRPC server Docker 镜像及 compose 配置
+
+services:
+  dotvector:
+    # TODO(M9): 替换为真实镜像
+    image: ghcr.io/iotsharp/dotvector:latest
+    ports:
+      - "50051:50051"   # gRPC
+    volumes:
+      - dotvector-data:/data
+    environment:
+      - DOTVECTOR_DATA_DIR=/data
+    # build:
+    #   context: .
+    #   dockerfile: src/DotVector.Cli/Dockerfile
+
+volumes:
+  dotvector-data:

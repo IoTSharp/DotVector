@@ -1,0 +1,24 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DotVector/DotVector.csproj" />
+    <Project Path="src/DotVector.Core/DotVector.Core.csproj" />
+    <Project Path="src/DotVector.Data/DotVector.Data.csproj" />
+    <Project Path="src/DotVector.Cli/DotVector.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DotVector.Tests/DotVector.Tests.csproj" />
+    <Project Path="tests/DotVector.Core.Tests/DotVector.Core.Tests.csproj" />
+    <Project Path="tests/DotVector.Accuracy.Tests/DotVector.Accuracy.Tests.csproj" />
+    <Project Path="tests/DotVector.Benchmarks/DotVector.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/connectors/">
+    <Project Path="connectors/c/native/DotVector.Native/DotVector.Native.csproj" />
+  </Folder>
+  <Folder Name="/eng/">
+    <Project Path="eng/benchmarks/run-benchmarks/run-benchmarks.csproj" />
+    <Project Path="eng/benchmarks/start-benchmark-env/start-benchmark-env.csproj" />
+  </Folder>
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
+</Solution>

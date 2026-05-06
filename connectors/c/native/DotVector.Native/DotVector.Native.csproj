@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <AssemblyName>DotVector.Native</AssemblyName>
+    <RootNamespace>DotVector.Native</RootNamespace>
+    <!-- C ABI 连接器：将来启用 NativeExports，暂保持 AOT 兼容 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\DotVector\DotVector.csproj" />
+  </ItemGroup>
+
+</Project>

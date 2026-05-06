@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    // TODO: 按需添加工具，例如：
+    // "dotnet-format": {
+    //   "version": "latest",
+    //   "commands": [ "dotnet-format" ]
+    // },
+    // "dotnet-coverage": {
+    //   "version": "17.x",
+    //   "commands": [ "dotnet-coverage" ]
+    // }
+  }
+}

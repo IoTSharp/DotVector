@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>start-benchmark-env</AssemblyName>
+    <!-- 工程工具，不发布，不需要 AOT -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

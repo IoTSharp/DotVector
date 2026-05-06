@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>DotVector.Cli</AssemblyName>
+    <RootNamespace>DotVector.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotVector\DotVector.csproj" />
+    <ProjectReference Include="..\DotVector.Core\DotVector.Core.csproj" />
+  </ItemGroup>
+
+</Project>

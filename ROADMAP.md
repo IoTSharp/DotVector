@@ -16,6 +16,8 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M7 | ⏳ | `Microsoft.Extensions.VectorData` 适配 |
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
 | M9 | ⏳ | gRPC Server + Native AOT + Docker |
+| M10 | ⏳ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
+| M11 | ⏳ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
 
 ---
 
@@ -193,8 +195,8 @@ my-database.dvec/
 - [x] `CatalogStore` round-trip 测试 + 原子覆盖写入（见 `CatalogStoreTests`）
 - [x] 格式版本不匹配（Magic / Version）→ `DotVectorException`（见 `CatalogStoreTests`）
 - [x] 目录布局在 Windows / Linux / macOS 上均能正确创建（CI 三平台）
-- [ ] mmap 零拷贝读路径（推迟到后续 milestone，与 Segment 文件落盘一并实现）
-- [ ] Compaction 测试：Segment 合并后结果与合并前一致（推迟到后续 milestone）
+- [ ] mmap 零拷贝读路径（推迟到 **M10**，与 Segment 文件落盘一并实现）
+- [ ] Compaction 测试：Segment 合并后结果与合并前一致（推迟到 **M10**）
 
 ---
 
@@ -207,8 +209,8 @@ my-database.dvec/
 - `Filter` AST：`Eq` / `Ne` / `Range` / `Exists` / `Missing` / `And` / `Or` / `Not`（reflection-free，AOT 友好）✅
 - `Collection<TKey>.Search(query, topK, Filter?)` 重载：底层索引 over-fetch + Collection 层 post-filter（默认过取倍率 8）✅
 - `Collection<TKey>.GetPayload(key)` 暴露 in-memory payload 快照 ✅
-- 简单标量索引（B-tree 风格）— 推迟到后续 milestone
-- payload 持久化（写入 WAL / Segment）— 推迟到后续 milestone（当前 payload 仅保存在内存中）
+- 简单标量索引（B-tree 风格）— 推迟到 **M11**
+- payload 持久化（写入 WAL / Segment）— 推迟到 **M11**（当前 payload 仅保存在内存中）
 
 **参考**：
 - Qdrant payload index：https://qdrant.tech/documentation/concepts/filtering/
@@ -218,7 +220,7 @@ my-database.dvec/
 **验收标准**：
 - [x] 带过滤搜索 Recall 与无过滤版本差 < 5%（`tests/DotVector.Accuracy.Tests/FilteredRecallTests.cs`，FlatIndex 上 Recall = 1.0）
 - [x] 过滤条件测试：equality / range / null check（`tests/DotVector.Core.Tests/Query/FilterTests.cs` + `FilteredSearchTests.cs`）
-- [ ] 大集合（100 万条）带过滤搜索延迟 < 100 ms（推迟到 M8 BenchmarkDotNet 基准一并验证）
+- [ ] 大集合（100 万条）带过滤搜索延迟 < 100 ms（推迟到 **M8** BenchmarkDotNet 基准与 **M11** B-tree 索引上线后验证）
 
 ---
 
@@ -298,14 +300,53 @@ my-database.dvec/
 
 ---
 
+## ⏳ M10 — Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续）
+
+**背景**：M5 只实现了 catalog + WAL 顺写与 replay，以下项从 M5 验收标准中推迟到本 milestone。
+
+**实现内容**：
+- `MemTable` 阈值触发 flush，写入 `seg-{seq}/seg.hdr`、`vectors.bin`（float32 行优先）、`index.bin`
+- `MemoryMappedFile` + `MemoryMappedViewAccessor` 封装，使用 `MemoryMarshal.Cast<byte, float>(view.AsSpan())` 零拷贝读取 Segment
+  - safe-only 约束下，走 `MemoryMappedViewStream` + `Span` 路径；AGENTS.md M0–M7 禁 unsafe 仍然适用
+- WAL 裁剪：Segment 落盘后裁剪对应 WAL 段
+- Compaction：多个小 Segment 合并为大 Segment，写新目录后原子提交（`File.Move` + `catalog.bin` 重写）
+- 崩溃恢复测试：flush 中途 / Compaction 中途 中断后重启一致性
+
+**验收标准**：
+- [ ] mmap 零拷贝读路径上线，Segment 完全不介入托管堆复制
+- [ ] Compaction 测试：Segment 合并后搜索结果与合并前一致
+- [ ] flush / Compaction 中途崩溃后重启仍能恢复上一致性快照
+- [ ] WAL 裁剪后磁盘占用有限
+
+---
+
+## ⏳ M11 — Payload 持久化 + 标量 B-tree 索引（M6 延续）
+
+**背景**：M6 仅实现了内存 payload 与 Collection 层 post-filter 过滤，以下项从 M6 验收标准推迟到本 milestone。
+
+**实现内容**：
+- Payload 序列化与持久化：随 Insert 写入 WAL，随 Segment flush 写入 `seg-{seq}/payload.bin`（依赖 M10 Segment flush）
+  - 序列化格式：TLV / MessagePack 风格的自描述二进制（避免引入 Newtonsoft.Json / MessagePack 第三方包，手写 `BinaryPrimitives` 小端读写）
+  - 支持类型：string / long / double / bool / null
+- 标量 B-tree 索引（pre-filter 加速）：对常用 payload 字段建索引，过滤先走索引得到候选集，再交给向量索引
+- `Collection.GetPayload(key)` 增加从磁盘 Segment 读取的路径
+- 带过滤搜索底层可选 pre-filter / post-filter 策略
+
+**验收标准**：
+- [ ] payload 重启后不丢失（WAL replay + Segment 重载）
+- [ ] 大集合（100 万条）带过滤搜索延迟 < 100 ms（需 M8 基准体系验证）
+- [ ] B-tree 索引在高选择率（> 90% 过滤）场景下优于 post-filter
+
+---
+
 ## ⏳ 预留 Milestone
 
 | Milestone | 内容 | 参考 |
 |-----------|------|------|
-| M10 | DiskANN（Vamana 图）— 磁盘索引，适合内存放不下的大规模数据集 | microsoft/DiskANN |
-| M11 | 量化：SQ8 / PQ / OPQ / 残差量化 | FAISS, Milvus |
-| M12 | GPU / ONNX-Runtime 加速（可选，若平台支持） | ONNX Runtime ExecutionProvider |
-| M13 | 分布式分片 — 一致性哈希路由，多节点扩展 | Milvus 分布式架构 |
+| M12 | DiskANN（Vamana 图）— 磁盘索引，适合内存放不下的大规模数据集 | microsoft/DiskANN |
+| M13 | 量化：SQ8 / PQ / OPQ / 残差量化 | FAISS, Milvus |
+| M14 | GPU / ONNX-Runtime 加速（可选，若平台支持） | ONNX Runtime ExecutionProvider |
+| M15 | 分布式分片 — 一致性哈希路由，多节点扩展 | Milvus 分布式架构 |
 
 ---
 

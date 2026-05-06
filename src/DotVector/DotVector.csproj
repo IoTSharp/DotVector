@@ -10,4 +10,14 @@
     <PackageReference Include="System.Numerics.Tensors" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\DotVector.Core\DotVector.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotVector.Core.Tests" />
+    <InternalsVisibleTo Include="DotVector.Tests" />
+    <InternalsVisibleTo Include="DotVector.Benchmarks" />
+  </ItemGroup>
+
 </Project>

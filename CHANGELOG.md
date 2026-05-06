@@ -8,6 +8,28 @@
 
 ### Added
 
+- PR #2：M1 — 距离函数与 SIMD 内核
+  - `src/DotVector/Compute/Distance.cs`：基于 `System.Numerics.Tensors.TensorPrimitives` 与 `System.Numerics.Vector<float>` 实现 SIMD 距离函数
+    - `L2Squared` / `L2`：手写 `Vector<float>` 累加器（diff*diff），尾部 scalar 处理
+    - `Cosine`：自定义 `DotAndNorms` 同时累加点积与范数平方，零向量返回 1f（避免 NaN），结果 clamp 到 `[0, 2]`
+    - `InnerProduct` / `DotProduct`：`TensorPrimitives.Dot`
+    - `Hamming(ReadOnlySpan<byte>, ReadOnlySpan<byte>)`：`MemoryMarshal.Cast<byte,ulong>` + `BitOperations.PopCount`，处理尾部字节
+    - `Compute(a, b, Metric)`：按 `Metric` 枚举分发
+    - 内部 `L2SquaredScalar` / `InnerProductScalar` / `CosineScalar` 参考实现，使用 double 累加器，用于 SIMD 一致性测试
+  - `src/DotVector/Compute/FloatDistanceKernel.cs`：实现 `IDistanceKernel<T>` 适配
+    - `FloatDistanceKernel`：fp32 SIMD 实现，委派到 `Distance`
+    - `GenericFloatDistanceKernel<T>`：基于 `IFloatingPointIeee754<T>` 通用泛型数学的 scalar 实现，支持 `float` / `double`
+  - `src/DotVector`：新增对 `DotVector.Core` 的项目引用，并以 `InternalsVisibleTo` 暴露 scalar 参考给测试与基准项目
+  - `tests/DotVector.Core.Tests/Compute/DistanceTests.cs`：51 个单元测试
+    - 长度不匹配 / 空向量 / 已知值 / 零向量 / 正交 / 反向
+    - SIMD vs scalar 高维一致性（dim ∈ {1,7,8,15,16,128,384,1536,4096}，差 &lt; 1e-5）
+    - Hamming 全等 / 全异 / 尾字节
+    - `Compute` 分发与 `Hamming` 抛 `NotSupportedException`
+    - `FloatDistanceKernel` / `GenericFloatDistanceKernel<float|double>` 验证
+  - `tests/DotVector.Benchmarks/DistanceBenchmark.cs`：BenchmarkDotNet 基准
+    - 维度 128 / 384 / 1536 / 4096
+    - L2Squared / Cosine / InnerProduct 的 SIMD vs scalar 对比；Hamming PopCount
+
 - PR #1：初始化工程骨架（M0）
   - `global.json`：固定 SDK `10.0.100`，`rollForward: latestMinor`
   - `Directory.Build.props`：统一 `net10.0`、`Nullable`、`ImplicitUsings`、`TreatWarningsAsErrors`、`IsAotCompatible`

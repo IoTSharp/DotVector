@@ -9,7 +9,8 @@ namespace DotVector.Core;
 /// </summary>
 /// <typeparam name="T">数值精度类型，必须满足 IFloatingPointIeee754。</typeparam>
 /// <remarks>
-/// TODO(M1): 提供 FloatDistanceKernel（fp32）实现，基于 TensorPrimitives。
+/// fp32 SIMD 实现见 <c>DotVector.Compute.FloatDistanceKernel</c>。
+/// 通用 scalar 实现见 <c>DotVector.Compute.GenericFloatDistanceKernel{T}</c>。
 /// TODO(M11): 扩展 Half（fp16）/ SByte（int8）量化精度实现。
 /// </remarks>
 public interface IDistanceKernel<T>

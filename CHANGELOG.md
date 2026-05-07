@@ -8,6 +8,23 @@
 
 ### Added
 
+- PR #M12.3：M12.3 — Vamana / DiskANN mmap 磁盘持久化
+  - `src/DotVector.Core/Index/DiskAnn/VamanaGraphIO.cs`（新增）：纯 safe 的 `vamana.bin` 读写器
+    - `Write(path, dimensions, metric, options, entryPoint, neighbors, tombstones)`：原子 tmp + `File.Move`，固定大小节点条目（`8 + 4*MaxDegree`），空槽位用 `EmptySlot=0xFFFFFFFF` 填充
+    - `Read(path, out header, out neighbors, out tombstones)`：`MemoryMappedFile` + `MemoryMappedViewAccessor.Read<T>` / `ReadArray<T>` 安全读取，校验 magic / version / 文件长度 / NodeId 单调 / NeighborCount 上限 / 槽位有效范围
+    - `EmptySlot = 0xFFFFFFFFu`、`NoEntryPoint = 0xFFFFFFFFu` 常量
+  - `src/DotVector.Core/Index/DiskAnn/VamanaIndex.cs`：新增 `Snapshot(...)`（读锁深拷贝）与 `RestoreBulk(...)`（写锁批量装载，校验维度/键唯一/EntryPoint，移除 tombstone 行的键映射）
+  - `src/DotVector.Core/Storage/PersistentDirectory.cs`：新增 `FlushVamanaCollection<TKey>(...)` 与 `TryGetLatestSegmentDir(...)`，Vamana 采用单 segment 全量快照模型（每次 Flush 写入新 `seg-{seq}` 并删除所有旧 segment 目录），WAL 同步 rotate + LastCoveredWalSequence 推进 + `TryTrimWal()`
+  - `src/DotVector.Core/Api/Collection.cs`：`Flush()` 新增 `VamanaIndex<TKey>` 分支；新增 internal `RestoreVamanaSnapshot(...)` 把磁盘快照交给 `VamanaIndex.RestoreBulk`
+  - `src/DotVector.Core/Api/VectorDatabase.cs`：新增 `LoadVamanaSegmentInto<TKey>(...)`，`OpenCollection` 路径在 `IndexKind.Vamana` 时优先加载最新 segment 的 `vamana.bin` 再回放 WAL（`LastCoveredWalSequence` 之后的记录）
+  - `tests/DotVector.Core.Tests/Persistence/VamanaPersistenceTests.cs`（新增 5 个测试）：
+    - Flush + Reopen 后向量计数保持
+    - Flush + Reopen 后同一 query 的 top-K 结果（key 序列 + score）完全一致
+    - `vamana.bin` 文件含正确的 "DVAN" magic
+    - 二次 Flush 后只剩单个 `seg-*` 目录（验证旧 segment 被清理）
+    - Flush 后增量 Insert 落入 WAL，重开时能被回放
+  - 全量回归：267 个测试通过（Core 199 + Tests 47 + Accuracy 21）
+
 - PR #M12.1：M12.1 — Vamana / DiskANN 索引格式头与单元测试
   - `src/DotVector.Core/Model/IndexKind.cs`：新增 `Vamana = 4` 枚举值
   - `src/DotVector.Core/Format/VamanaNodeHeader.cs`（新增）：8 字节 `[StructLayout(Sequential, Pack=1)]` 节点头（`NodeId` + `NeighborCount` + `Tombstone` + `Reserved0`），后跟 `uint[R] neighbors` 邻居数组与可选的 `float[D]` 内联向量

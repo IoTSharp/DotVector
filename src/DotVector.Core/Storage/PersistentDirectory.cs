@@ -3,6 +3,7 @@ using DotVector.Api;
 using DotVector.Catalog;
 using DotVector.Exceptions;
 using DotVector.Format;
+using DotVector.Index.DiskAnn;
 using DotVector.Index.Flat;
 using DotVector.IO;
 using DotVector.Model;
@@ -287,6 +288,26 @@ internal sealed class PersistentDirectory : IDisposable
     }
 
     /// <summary>
+    /// 返回集合最新（按字典序最大）segment 目录的绝对路径；不存在时返回 <see langword="null"/>。
+    /// 主要供 Vamana 恢复使用：M12.3 起 Vamana 每次 Flush 都是单 segment 全量快照。
+    /// </summary>
+    internal string? TryGetLatestSegmentDir(Guid collectionId)
+    {
+        string segsDir = GetSegmentsDir(collectionId);
+        if (!Directory.Exists(segsDir)) { return null; }
+        string? latest = null;
+        foreach (string dir in Directory.EnumerateDirectories(segsDir, "seg-*"))
+        {
+            if (dir.EndsWith(".tmp", StringComparison.Ordinal)) { continue; }
+            if (latest is null || string.CompareOrdinal(dir, latest) > 0)
+            {
+                latest = dir;
+            }
+        }
+        return latest;
+    }
+
+    /// <summary>
     /// 把集合的当前内存索引快照写成新 Segment 并旋转 WAL。
     /// 仅 <see cref="FlatIndex{TKey}"/> 在 M10 受支持。
     /// </summary>
@@ -355,6 +376,101 @@ internal sealed class PersistentDirectory : IDisposable
             _flushedRows[collectionId] = newFlushed;
 
             // 6. 尝试裁剪 WAL
+            TryTrimWal();
+        }
+    }
+
+    /// <summary>
+    /// 把集合的 Vamana 索引快照写成新 Segment（包含 <c>vamana.bin</c> 图文件）并旋转 WAL。
+    /// </summary>
+    /// <remarks>
+    /// 与 Flat 的 delta 写入不同，Vamana 每次 Flush 写出"全量"快照（key+vector+graph），
+    /// 并删除该集合先前所有 Segment 目录，使最新 Segment 即为完整状态。
+    /// 这样可避免在恢复时合并多 segment 图结构。
+    /// </remarks>
+    internal void FlushVamanaCollection<TKey>(
+        Guid collectionId,
+        VamanaIndex<TKey> index,
+        VamanaOptions options,
+        Func<TKey, byte[]?>? encodedPayloadProvider = null) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(options);
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+
+            CatalogEntry entry = _entries.FirstOrDefault(e => e.CollectionId == collectionId)
+                ?? throw new DotVectorException($"集合 {collectionId} 未在 catalog 中注册。");
+
+            // 1. 旋转 WAL
+            long closedSeq = _currentWalSeq;
+            long newSeq = closedSeq + 1;
+            EnsureWalWriter().Rotate(GetWalPath(newSeq));
+            _currentWalSeq = newSeq;
+
+            // 2. 全量快照
+            index.Snapshot(
+                out List<TKey> keys,
+                out float[] vectors,
+                out int entryPoint,
+                out List<int[]> neighbors,
+                out HashSet<int> tombstones);
+
+            // 3. 选择新 segment 序号
+            CollectionManifest manifest = _manifests.TryGetValue(collectionId, out var m)
+                ? m
+                : CollectionManifestStore.Read(GetManifestPath(collectionId));
+            ulong segSeq = manifest.NextSegmentSequence == 0 ? 1UL : manifest.NextSegmentSequence;
+
+            // 4. 写 Segment（vectors.bin + keys.bin + payload.bin）
+            SegmentHeader header = new()
+            {
+                SequenceNumber = segSeq,
+                VectorCount = (uint)keys.Count,
+                Dimensions = (uint)entry.Dimensions,
+                Metric = (byte)entry.Metric,
+                CreatedAtUtcUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Reserved = default,
+            };
+            string segDir = GetSegmentDir(collectionId, (long)segSeq);
+            byte[]?[]? payloadsArr = null;
+            if (encodedPayloadProvider is not null && keys.Count > 0)
+            {
+                payloadsArr = new byte[]?[keys.Count];
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    payloadsArr[i] = encodedPayloadProvider(keys[i]);
+                }
+            }
+            SegmentWriter.Write(segDir, header, keys, vectors, payloadsArr);
+
+            // 5. 写 vamana.bin
+            string vamanaPath = Path.Combine(segDir, "vamana.bin");
+            VamanaGraphIO.Write(vamanaPath, entry.Dimensions, entry.Metric, options, entryPoint, neighbors, tombstones);
+
+            // 6. 删除旧 Segment 目录（保留刚写入的新 segment）
+            string segsDir = GetSegmentsDir(collectionId);
+            string newSegName = Path.GetFileName(segDir);
+            foreach (string oldDir in Directory.EnumerateDirectories(segsDir, "seg-*"))
+            {
+                if (oldDir.EndsWith(".tmp", StringComparison.Ordinal)) { continue; }
+                if (string.Equals(Path.GetFileName(oldDir), newSegName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                try { Directory.Delete(oldDir, recursive: true); }
+                catch (IOException) { /* 占用时跳过 */ }
+            }
+
+            // 7. 更新 manifest（Vamana 不维护 _flushedRows，因为是全量）
+            manifest.NextSegmentSequence = segSeq + 1;
+            manifest.LastCoveredWalSequence = (ulong)closedSeq;
+            CollectionManifestStore.Write(GetManifestPath(collectionId), manifest);
+            _manifests[collectionId] = manifest;
+            _flushedRows[collectionId] = keys.Count;
+
+            // 8. 尝试裁剪 WAL
             TryTrimWal();
         }
     }

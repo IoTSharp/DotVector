@@ -464,11 +464,11 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
     }
 
     /// <summary>
-    /// 把当前内存索引快照刷入新 Segment，并旋转 WAL（M10）。
+    /// 把当前内存索引快照刷入新 Segment，并旋转 WAL（M10 / M12.3）。
     /// 仅当集合已通过 <see cref="DotVector.Api.VectorDatabase"/> 关联到持久化目录、
-    /// 且使用 <see cref="IndexKind.Flat"/> 索引时才有效。
+    /// 且使用 <see cref="IndexKind.Flat"/> 或 <see cref="IndexKind.Vamana"/> 索引时才有效。
     /// </summary>
-    /// <exception cref="NotSupportedException">底层索引不是 <see cref="FlatIndex{TKey}"/>（M10 只支持 Flat）。</exception>
+    /// <exception cref="NotSupportedException">底层索引不是 <see cref="FlatIndex{TKey}"/> 或 <see cref="VamanaIndex{TKey}"/>。</exception>
     public void Flush()
     {
         ThrowIfDisposed();
@@ -477,9 +477,13 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         {
             _persistent.FlushCollection(_collectionId, flat, EncodePayloadForKey);
         }
+        else if (_index is VamanaIndex<TKey> vamana)
+        {
+            _persistent.FlushVamanaCollection(_collectionId, vamana, vamana.Options, EncodePayloadForKey);
+        }
         else
         {
-            throw new NotSupportedException("Flush 当前仅支持 Flat 索引（M10）；HNSW / IVF 持久化将在后续 Milestone 提供。");
+            throw new NotSupportedException("Flush 当前仅支持 Flat / Vamana 索引；HNSW / IVF 持久化将在后续 Milestone 提供。");
         }
     }
 
@@ -563,5 +567,23 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         return _payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? p) && p is { Count: > 0 }
             ? PayloadCodec.Encode(p)
             : null;
+    }
+
+    /// <summary>
+    /// 用一份完整快照批量恢复 Vamana 索引内部状态（M12.3）。
+    /// 仅在初始化阶段（索引为空、无并发写入）调用。
+    /// </summary>
+    internal void RestoreVamanaSnapshot(
+        IReadOnlyList<TKey> keys,
+        ReadOnlySpan<float> vectors,
+        int entryPoint,
+        IReadOnlyList<int[]> neighbors,
+        IReadOnlyCollection<int> tombstones)
+    {
+        if (_index is not VamanaIndex<TKey> vamana)
+        {
+            throw new InvalidOperationException("RestoreVamanaSnapshot 仅适用于 Vamana 索引。");
+        }
+        vamana.RestoreBulk(keys, vectors, entryPoint, neighbors, tombstones);
     }
 }

@@ -81,11 +81,15 @@ public sealed class VectorDatabase : IDisposable
     private void RestoreCollectionTyped<TKey>(CatalogEntry entry) where TKey : notnull
     {
         var collection = new Collection<TKey>(entry.Name, entry.Dimensions, entry.Metric, entry.IndexKind);
-        // 1. 先加载已落盘的 Segment（M10：仅 Flat）
+        // 1. 先加载已落盘的 Segment（M10：Flat / M12.3：Vamana）
         CollectionManifest manifest = _persistent!.GetManifest(entry.CollectionId);
         if (entry.IndexKind == IndexKind.Flat)
         {
             LoadSegmentsInto(collection, entry);
+        }
+        else if (entry.IndexKind == IndexKind.Vamana)
+        {
+            LoadVamanaSegmentInto(collection, entry);
         }
         // 2. 回放 manifest 之后的 WAL（不附加 sink，避免回写）
         ReplayWalInto(collection, entry, (long)manifest.LastCoveredWalSequence);
@@ -136,6 +140,59 @@ public sealed class VectorDatabase : IDisposable
             }
         }
         _persistent.NotifyRestoredRowCount(entry.CollectionId, totalRestored);
+    }
+
+    private void LoadVamanaSegmentInto<TKey>(Collection<TKey> collection, CatalogEntry entry) where TKey : notnull
+    {
+        if (_persistent is null) return;
+        string? segDir = _persistent.TryGetLatestSegmentDir(entry.CollectionId);
+        if (segDir is null) { return; }
+        string vamanaPath = Path.Combine(segDir, "vamana.bin");
+        if (!File.Exists(vamanaPath)) { return; }
+
+        using SegmentReader<TKey> seg = SegmentReader<TKey>.Open(segDir);
+        if (seg.Header.VectorCount == 0) { return; }
+
+        int dim = entry.Dimensions;
+        int n = seg.Keys.Count;
+        float[] vectors = seg.ReadAllVectors();
+
+        VamanaGraphIO.Read(vamanaPath, out VamanaFileHeader header, out List<int[]> neighbors, out HashSet<int> tombstones);
+        if ((int)header.NodeCount != n)
+        {
+            throw new DotVectorException(
+                $"Vamana 图节点数 {header.NodeCount} 与 segment 向量数 {n} 不一致。");
+        }
+        if ((int)header.Dimensions != dim)
+        {
+            throw new DotVectorException(
+                $"Vamana 图维度 {header.Dimensions} 与集合维度 {dim} 不一致。");
+        }
+
+        int entryPoint = header.EntryPointId == VamanaGraphIO.NoEntryPoint
+            ? -1
+            : (int)header.EntryPointId;
+
+        collection.RestoreVamanaSnapshot(seg.Keys, vectors, entryPoint, neighbors, tombstones);
+
+        // M11：恢复 payload
+        IReadOnlyList<byte[]?>? encodedPayloads = seg.EncodedPayloads;
+        if (encodedPayloads is not null)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                byte[]? enc = encodedPayloads[i];
+                if (enc is { Length: > 0 })
+                {
+                    Dictionary<string, object?> dict = PayloadCodec.Decode(enc);
+                    collection.RestorePayload(seg.Keys[i], dict);
+                }
+            }
+        }
+
+        // 减去 tombstone 计数得到逻辑活跃行数
+        int activeCount = n - tombstones.Count;
+        _persistent.NotifyRestoredRowCount(entry.CollectionId, activeCount);
     }
 
     private void ReplayWalInto<TKey>(Collection<TKey> collection, CatalogEntry entry, long minWalSeqExclusive) where TKey : notnull

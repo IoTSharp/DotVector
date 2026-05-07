@@ -260,6 +260,125 @@ public sealed class VamanaIndex<TKey> : IIndex<TKey>, IDisposable
         _lock.Dispose();
     }
 
+    // -------- M12.3：持久化快照 / 恢复 --------
+
+    /// <summary>
+    /// 在持有读锁的前提下导出图的完整快照，供 <see cref="DotVector.Storage.PersistentDirectory"/>
+    /// 在 Flush 时写入 <c>vamana.bin</c>。
+    /// </summary>
+    /// <param name="keys">输出：所有行的键序列（按 row 升序）。</param>
+    /// <param name="vectors">输出：行优先连续向量缓冲，长度 = keys.Count * <see cref="Dimensions"/>。</param>
+    /// <param name="entryPoint">输出：入口点 row，未初始化时为 -1。</param>
+    /// <param name="neighbors">输出：每行邻居 row 列表的副本（顺序保留）。</param>
+    /// <param name="tombstones">输出：被 tombstone 的 row 集合副本。</param>
+    internal void Snapshot(
+        out List<TKey> keys,
+        out float[] vectors,
+        out int entryPoint,
+        out List<int[]> neighbors,
+        out HashSet<int> tombstones)
+    {
+        ThrowIfDisposed();
+        _lock.EnterReadLock();
+        try
+        {
+            keys = new List<TKey>(_keys);
+            vectors = new float[_keys.Count * _dimensions];
+            CollectionsMarshal.AsSpan(_vectors).CopyTo(vectors);
+            entryPoint = _entryPoint;
+            neighbors = new List<int[]>(_neighbors.Count);
+            for (int i = 0; i < _neighbors.Count; i++)
+            {
+                neighbors.Add(_neighbors[i].ToArray());
+            }
+            tombstones = new HashSet<int>(_tombstones);
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// 从持久化数据批量恢复索引；调用前索引必须为空（否则抛出）。
+    /// </summary>
+    /// <param name="keys">键序列。</param>
+    /// <param name="vectors">行优先向量缓冲，长度 = keys.Count * <see cref="Dimensions"/>。</param>
+    /// <param name="entryPoint">入口点 row（-1 表示空索引）。</param>
+    /// <param name="neighbors">每行邻居 row 列表（顺序保留，长度需等于 keys.Count）。</param>
+    /// <param name="tombstones">tombstone row 集合。</param>
+    internal void RestoreBulk(
+        IReadOnlyList<TKey> keys,
+        ReadOnlySpan<float> vectors,
+        int entryPoint,
+        IReadOnlyList<int[]> neighbors,
+        IReadOnlyCollection<int> tombstones)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(neighbors);
+        ArgumentNullException.ThrowIfNull(tombstones);
+        ThrowIfDisposed();
+
+        if (vectors.Length != keys.Count * _dimensions)
+        {
+            throw new ArgumentException(
+                $"vectors 长度 {vectors.Length} 与 keys.Count * Dimensions = {keys.Count * _dimensions} 不一致。",
+                nameof(vectors));
+        }
+        if (neighbors.Count != keys.Count)
+        {
+            throw new ArgumentException(
+                $"neighbors 长度 {neighbors.Count} 与 keys.Count {keys.Count} 不一致。",
+                nameof(neighbors));
+        }
+
+        _lock.EnterWriteLock();
+        try
+        {
+            if (_keys.Count > 0)
+            {
+                throw new InvalidOperationException("RestoreBulk 仅可在空 VamanaIndex 上调用。");
+            }
+
+            _vectors.Capacity = Math.Max(_vectors.Capacity, vectors.Length);
+            for (int i = 0; i < vectors.Length; i++)
+            {
+                _vectors.Add(vectors[i]);
+            }
+            for (int row = 0; row < keys.Count; row++)
+            {
+                TKey key = keys[row];
+                _keys.Add(key);
+                if (!_keyToRow.TryAdd(key, row))
+                {
+                    throw new InvalidOperationException($"恢复阶段发现重复键：'{key}'。");
+                }
+                int[] src = neighbors[row];
+                List<int> nbr = new(src.Length);
+                nbr.AddRange(src);
+                _neighbors.Add(nbr);
+            }
+            foreach (int t in tombstones)
+            {
+                if (t < 0 || t >= _keys.Count)
+                {
+                    throw new InvalidOperationException($"tombstone row {t} 越界。");
+                }
+                _tombstones.Add(t);
+                _keyToRow.Remove(_keys[t]);
+            }
+            if (entryPoint >= _keys.Count || entryPoint < -1)
+            {
+                throw new InvalidOperationException($"entryPoint {entryPoint} 越界。");
+            }
+            _entryPoint = entryPoint;
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+    }
+
     // -------- internals --------
 
     private void EnsureDimension(int actual)

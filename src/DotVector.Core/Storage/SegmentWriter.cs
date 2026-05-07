@@ -33,6 +33,25 @@ internal static class SegmentWriter
         SegmentHeader header,
         IReadOnlyList<TKey> keys,
         ReadOnlySpan<float> vectors) where TKey : notnull
+        => Write(segmentDirectory, header, keys, vectors, payloads: null);
+
+    /// <summary>
+    /// 将一组向量、键与可选 payload 写入指定 Segment 目录（原子，M11）。
+    /// </summary>
+    /// <typeparam name="TKey">键类型。</typeparam>
+    /// <param name="segmentDirectory">目标 Segment 目录路径。</param>
+    /// <param name="header">Segment 头部信息。</param>
+    /// <param name="keys">键序列，长度须与 <paramref name="header"/>.VectorCount 一致。</param>
+    /// <param name="vectors">行优先 float32 向量数据。</param>
+    /// <param name="payloads">每行对应的已编码 payload 字节序列；元素为 <see langword="null"/> 表示该行无 payload。
+    /// 当本参数本身为 <see langword="null"/> 或所有元素均为 <see langword="null"/> 时，
+    /// 不写出 <c>payload.bin</c>。</param>
+    public static void Write<TKey>(
+        string segmentDirectory,
+        SegmentHeader header,
+        IReadOnlyList<TKey> keys,
+        ReadOnlySpan<float> vectors,
+        IReadOnlyList<byte[]?>? payloads) where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(segmentDirectory);
         ArgumentNullException.ThrowIfNull(keys);
@@ -47,6 +66,11 @@ internal static class SegmentWriter
         {
             throw new DotVectorException(
                 $"向量字节数 {vectors.Length} 不等于预期 {expectedFloats}。");
+        }
+        if (payloads is not null && payloads.Count != keys.Count)
+        {
+            throw new DotVectorException(
+                $"payloads 长度 {payloads.Count} 与 keys 长度 {keys.Count} 不一致。");
         }
 
         string parent = Path.GetDirectoryName(segmentDirectory)
@@ -92,6 +116,45 @@ internal static class SegmentWriter
                 KeyCodec.Write(ref w, keys[i]);
             }
             fs.Write(buf, 0, w.Written);
+            fs.Flush(flushToDisk: true);
+        }
+
+        // payload.bin（M11，可选）
+        bool hasAnyPayload = false;
+        if (payloads is not null)
+        {
+            for (int i = 0; i < payloads.Count; i++)
+            {
+                if (payloads[i] is { Length: > 0 })
+                {
+                    hasAnyPayload = true;
+                    break;
+                }
+            }
+        }
+        if (hasAnyPayload)
+        {
+            // 格式：u32 count + repeated{ u32 len + bytes(len) }；len=0 表示该行无 payload。
+            int total = sizeof(uint);
+            for (int i = 0; i < payloads!.Count; i++)
+            {
+                total += sizeof(uint);
+                byte[]? p = payloads[i];
+                if (p is not null) { total += p.Length; }
+            }
+            byte[] payloadBuf = new byte[total];
+            SpanWriter pw = new(payloadBuf);
+            pw.WriteUInt32((uint)payloads.Count);
+            for (int i = 0; i < payloads.Count; i++)
+            {
+                byte[]? p = payloads[i];
+                int len = p?.Length ?? 0;
+                pw.WriteUInt32((uint)len);
+                if (len > 0) { pw.WriteBytes(p!); }
+            }
+            using FileStream fs = new(Path.Combine(tmpDir, "payload.bin"),
+                FileMode.Create, FileAccess.Write, FileShare.None);
+            fs.Write(payloadBuf, 0, pw.Written);
             fs.Flush(flushToDisk: true);
         }
 

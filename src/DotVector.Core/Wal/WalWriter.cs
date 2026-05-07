@@ -104,6 +104,31 @@ internal sealed class WalWriter : IDisposable
         FinishRecord(buffer, bodyStart, bodySize, ref w);
     }
 
+    /// <summary>追加 SetPayload 记录（M11）。</summary>
+    /// <typeparam name="TKey">键类型。</typeparam>
+    /// <param name="collectionId">集合 GUID。</param>
+    /// <param name="key">记录主键。</param>
+    /// <param name="encodedPayload">已通过 <c>PayloadCodec</c> 编码的字节序列；长度 0 表示清空 payload。</param>
+    public void AppendPayload<TKey>(Guid collectionId, TKey key, ReadOnlySpan<byte> encodedPayload) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        KeyTypeCode code = KeyCodec.GetCode<TKey>();
+        int keySize = KeyCodec.ComputeSize(key);
+        int bodySize = 1 /*type*/ + 16 /*guid*/ + 1 /*keyTypeCode*/ + keySize + 4 /*payload len*/ + encodedPayload.Length;
+
+        byte[] buffer = new byte[sizeof(uint) + bodySize + sizeof(uint)];
+        SpanWriter w = new(buffer);
+        w.WriteUInt32((uint)bodySize);
+        int bodyStart = w.Written;
+        w.WriteByte((byte)WalRecordType.SetPayload);
+        w.WriteGuid(collectionId);
+        w.WriteByte((byte)code);
+        KeyCodec.Write(ref w, key);
+        w.WriteUInt32((uint)encodedPayload.Length);
+        w.WriteBytes(encodedPayload);
+        FinishRecord(buffer, bodyStart, bodySize, ref w);
+    }
+
     private void FinishRecord(byte[] buffer, int bodyStart, int bodySize, scoped ref SpanWriter w)
     {
         if (w.Written - bodyStart != bodySize)

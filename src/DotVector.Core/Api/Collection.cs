@@ -24,6 +24,7 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
 {
     private readonly IIndex<TKey> _index;
     private readonly ConcurrentDictionary<TKey, IReadOnlyDictionary<string, object?>> _payloads = new();
+    private readonly ScalarIndex<TKey> _scalarIndex = new();
     private IWriteSink<TKey>? _writeSink;
     private PersistentDirectory? _persistent;
     private Guid _collectionId;
@@ -187,7 +188,10 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         ThrowIfDisposed();
         _writeSink?.OnDelete(key);
         bool removed = _index.Remove(key);
-        _payloads.TryRemove(key, out _);
+        if (_payloads.TryRemove(key, out IReadOnlyDictionary<string, object?>? oldPayload))
+        {
+            _scalarIndex.Remove(key, oldPayload);
+        }
         return removed;
     }
 
@@ -197,8 +201,7 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
     /// <param name="key">记录主键。</param>
     /// <returns>payload 字典；若记录不存在或未提供 payload 则返回 <see langword="null"/>。</returns>
     /// <remarks>
-    /// payload 仅保存在内存中，<b>不写入 WAL</b>，重启后会丢失。
-    /// 完整的 payload 持久化将在后续 milestone 与 Segment 落盘一并实现。
+    /// payload 自 M11 起持久化（WAL + Segment <c>payload.bin</c>），重启后保留。
     /// </remarks>
     public IReadOnlyDictionary<string, object?>? GetPayload(TKey key)
     {
@@ -207,6 +210,40 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         return _payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? payload)
             ? payload
             : null;
+    }
+
+    /// <summary>
+    /// 设置或更新指定记录的标量 payload（M11）。
+    /// </summary>
+    /// <param name="key">记录主键。</param>
+    /// <param name="payload">payload 字典；为 <see langword="null"/> 或空字典表示清空 payload。</param>
+    /// <remarks>
+    /// 自 M11 起，payload 写入会同步到 WAL 与 Segment（<c>payload.bin</c>），重启后保留。
+    /// </remarks>
+    public void SetPayload(TKey key, IReadOnlyDictionary<string, object?>? payload)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ThrowIfDisposed();
+
+        bool isEmpty = payload is null || payload.Count == 0;
+        byte[] encoded = isEmpty ? Array.Empty<byte>() : PayloadCodec.Encode(payload!);
+        _writeSink?.OnPayload(key, encoded);
+        _payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? oldPayload);
+        if (isEmpty)
+        {
+            _payloads.TryRemove(key, out _);
+            _scalarIndex.Update(key, oldPayload, newPayload: null);
+        }
+        else
+        {
+            var snapshot = new Dictionary<string, object?>(payload!.Count, StringComparer.Ordinal);
+            foreach (var kv in payload!)
+            {
+                snapshot[kv.Key] = kv.Value;
+            }
+            _payloads[key] = snapshot;
+            _scalarIndex.Update(key, oldPayload, snapshot);
+        }
     }
 
     /// <summary>
@@ -248,6 +285,45 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
                 nameof(query));
         }
         ThrowIfDisposed();
+
+        // M11：尝试通过 ScalarIndex 把过滤下推为候选键集合，并直接在 FlatIndex 上做 SearchSubset。
+        if (filter is not null && _index is FlatIndex<TKey> flatIndex)
+        {
+            if (_scalarIndex.TryResolveCandidates(filter, out HashSet<TKey>? candidates) && candidates is not null)
+            {
+                if (candidates.Count == 0)
+                {
+                    return Array.Empty<SearchResult<TKey>>();
+                }
+
+                var subsetPool = ArrayPool<(TKey Key, float Score)>.Shared;
+                int subsetFetch = Math.Min(candidates.Count, Math.Max(topK, 1));
+                (TKey Key, float Score)[] subsetBuffer = subsetPool.Rent(subsetFetch);
+                try
+                {
+                    int subsetWritten = flatIndex.SearchSubset(query, subsetFetch, candidates, subsetBuffer.AsSpan(0, subsetFetch));
+                    if (subsetWritten == 0)
+                    {
+                        return Array.Empty<SearchResult<TKey>>();
+                    }
+                    var subsetResults = new List<SearchResult<TKey>>(Math.Min(subsetWritten, topK));
+                    for (int i = 0; i < subsetWritten && subsetResults.Count < topK; i++)
+                    {
+                        TKey k = subsetBuffer[i].Key;
+                        IReadOnlyDictionary<string, object?>? p = _payloads.TryGetValue(k, out var pv) ? pv : null;
+                        // 双保险：pre-filter 是保守集合，但仍用 Filter.Matches 做最终判定，
+                        // 避免 ScalarIndex 不支持的形态把不该匹配的键漏到结果里。
+                        if (!filter.Matches(p)) continue;
+                        subsetResults.Add(new SearchResult<TKey>(k, subsetBuffer[i].Score) { Payload = p });
+                    }
+                    return subsetResults;
+                }
+                finally
+                {
+                    subsetPool.Return(subsetBuffer, clearArray: true);
+                }
+            }
+        }
 
         int fetch = topK;
         if (filter is not null)
@@ -307,7 +383,7 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         if (_persistent is null) { return; }
         if (_index is FlatIndex<TKey> flat)
         {
-            _persistent.FlushCollection(_collectionId, flat);
+            _persistent.FlushCollection(_collectionId, flat, EncodePayloadForKey);
         }
         else
         {
@@ -344,9 +420,15 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
 
     private void StorePayload(TKey key, Dictionary<string, object>? payload)
     {
+        _payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? oldPayload);
         if (payload is null || payload.Count == 0)
         {
-            _payloads.TryRemove(key, out _);
+            // 不主动 OnPayload(empty)，因为 Insert/Delete 已经覆盖语义；
+            // 仅清理内存映射。
+            if (_payloads.TryRemove(key, out _))
+            {
+                _scalarIndex.Update(key, oldPayload, newPayload: null);
+            }
             return;
         }
 
@@ -357,5 +439,37 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
             snapshot[kv.Key] = kv.Value;
         }
         _payloads[key] = snapshot;
+        _scalarIndex.Update(key, oldPayload, snapshot);
+
+        // M11：随插入一并写 payload WAL 记录，确保重启后 payload 不丢失。
+        if (_writeSink is not null)
+        {
+            byte[] encoded = PayloadCodec.Encode(snapshot);
+            _writeSink.OnPayload(key, encoded);
+        }
+    }
+
+    /// <summary>从恢复路径直接注入 payload 内存视图（不触发 WAL/sink）。M11。</summary>
+    internal void RestorePayload(TKey key, IReadOnlyDictionary<string, object?>? payload)
+    {
+        _payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? oldPayload);
+        if (payload is null || payload.Count == 0)
+        {
+            if (_payloads.TryRemove(key, out _))
+            {
+                _scalarIndex.Update(key, oldPayload, newPayload: null);
+            }
+            return;
+        }
+        _payloads[key] = payload;
+        _scalarIndex.Update(key, oldPayload, payload);
+    }
+
+    /// <summary>Flush 时按键编码 payload；无 payload 返回 <see langword="null"/>。M11。</summary>
+    private byte[]? EncodePayloadForKey(TKey key)
+    {
+        return _payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? p) && p is { Count: > 0 }
+            ? PayloadCodec.Encode(p)
+            : null;
     }
 }

@@ -30,18 +30,24 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
     /// <summary>键序列（与向量行一一对应）。</summary>
     public IReadOnlyList<TKey> Keys { get; }
 
+    /// <summary>每行对应的已编码 payload 字节序列；元素为 <see langword="null"/> 表示该行无 payload。
+    /// 当 Segment 不含 <c>payload.bin</c> 时为 <see langword="null"/>。</summary>
+    public IReadOnlyList<byte[]?>? EncodedPayloads { get; }
+
     private SegmentReader(
         SegmentHeader header,
         IReadOnlyList<TKey> keys,
         MemoryMappedFile mmf,
         MemoryMappedViewAccessor accessor,
-        long vectorBytes)
+        long vectorBytes,
+        IReadOnlyList<byte[]?>? encodedPayloads)
     {
         Header = header;
         Keys = keys;
         _vectorsMmf = mmf;
         _vectorsAccessor = accessor;
         _vectorBytes = vectorBytes;
+        EncodedPayloads = encodedPayloads;
     }
 
     /// <summary>打开指定 Segment 目录。</summary>
@@ -81,12 +87,41 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
                 $"vectors.bin 长度 {fi.Length} 与预期 {expected} 不一致。");
         }
 
+        // payload.bin（M11，可选）
+        IReadOnlyList<byte[]?>? encodedPayloads = null;
+        string payloadPath = Path.Combine(segmentDirectory, "payload.bin");
+        if (File.Exists(payloadPath))
+        {
+            byte[] payloadBuf = File.ReadAllBytes(payloadPath);
+            SpanReader pr = new(payloadBuf);
+            uint count = pr.ReadUInt32();
+            if (count != header.VectorCount)
+            {
+                throw new DotVectorException(
+                    $"payload.bin 行数 {count} 与 VectorCount {header.VectorCount} 不一致。");
+            }
+            byte[]?[] arr = new byte[]?[count];
+            for (int i = 0; i < count; i++)
+            {
+                uint len = pr.ReadUInt32();
+                if (len == 0)
+                {
+                    arr[i] = null;
+                }
+                else
+                {
+                    arr[i] = pr.ReadBytes((int)len).ToArray();
+                }
+            }
+            encodedPayloads = arr;
+        }
+
         MemoryMappedFile mmf;
         MemoryMappedViewAccessor accessor;
         if (expected == 0)
         {
             // 空 Segment：跳过 mmap
-            return new SegmentReader<TKey>(header, keys, null!, null!, 0);
+            return new SegmentReader<TKey>(header, keys, null!, null!, 0, encodedPayloads);
         }
 
         mmf = MemoryMappedFile.CreateFromFile(
@@ -97,7 +132,7 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
             access: MemoryMappedFileAccess.Read);
         accessor = mmf.CreateViewAccessor(0, expected, MemoryMappedFileAccess.Read);
 
-        return new SegmentReader<TKey>(header, keys, mmf, accessor, expected);
+        return new SegmentReader<TKey>(header, keys, mmf, accessor, expected, encodedPayloads);
     }
 
     /// <summary>读取指定行的向量到目标 span（长度须等于 Dimensions）。</summary>

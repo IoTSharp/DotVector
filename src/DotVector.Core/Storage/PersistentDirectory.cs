@@ -209,6 +209,16 @@ internal sealed class PersistentDirectory : IDisposable
         }
     }
 
+    /// <summary>追加 SetPayload 记录到 WAL（M11，串行化）。</summary>
+    internal void AppendPayload<TKey>(Guid collectionId, TKey key, ReadOnlySpan<byte> encodedPayload) where TKey : notnull
+    {
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+            EnsureWalWriter().AppendPayload(collectionId, key, encodedPayload);
+        }
+    }
+
     /// <summary>
     /// 枚举指定集合在 WAL 中的所有有效记录（按写入顺序）；
     /// 仅返回所在 WAL 文件序列号 &gt; <paramref name="minSeqExclusive"/> 的记录。
@@ -280,7 +290,14 @@ internal sealed class PersistentDirectory : IDisposable
     /// 把集合的当前内存索引快照写成新 Segment 并旋转 WAL。
     /// 仅 <see cref="FlatIndex{TKey}"/> 在 M10 受支持。
     /// </summary>
-    internal void FlushCollection<TKey>(Guid collectionId, FlatIndex<TKey> index) where TKey : notnull
+    /// <param name="collectionId">集合 GUID。</param>
+    /// <param name="index">内存中的 Flat 索引。</param>
+    /// <param name="encodedPayloadProvider">M11：可选回调，根据键返回该行已编码的 payload 字节序列；
+    /// 返回 <see langword="null"/> 表示该行无 payload。本参数本身为 <see langword="null"/> 时不写出 <c>payload.bin</c>。</param>
+    internal void FlushCollection<TKey>(
+        Guid collectionId,
+        FlatIndex<TKey> index,
+        Func<TKey, byte[]?>? encodedPayloadProvider = null) where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(index);
         lock (_lock)
@@ -319,7 +336,16 @@ internal sealed class PersistentDirectory : IDisposable
                 Reserved = default,
             };
             string segDir = GetSegmentDir(collectionId, (long)segSeq);
-            SegmentWriter.Write(segDir, header, keys, vectors);
+            byte[]?[]? payloadsArr = null;
+            if (encodedPayloadProvider is not null && keys.Count > 0)
+            {
+                payloadsArr = new byte[]?[keys.Count];
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    payloadsArr[i] = encodedPayloadProvider(keys[i]);
+                }
+            }
+            SegmentWriter.Write(segDir, header, keys, vectors, payloadsArr);
 
             // 5. 更新 manifest + 已 flush 行数
             manifest.NextSegmentSequence = segSeq + 1;
@@ -357,10 +383,20 @@ internal sealed class PersistentDirectory : IDisposable
 
             List<TKey> mergedKeys = new();
             List<float> mergedVectors = new();
+            List<byte[]?> mergedPayloads = new();
+            bool anyPayload = false;
             foreach (string dir in dirs)
             {
                 using SegmentReader<TKey> reader = SegmentReader<TKey>.Open(dir);
-                mergedKeys.AddRange(reader.Keys);
+                IReadOnlyList<byte[]?>? segPayloads = reader.EncodedPayloads;
+                int n = reader.Keys.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    mergedKeys.Add(reader.Keys[i]);
+                    byte[]? p = segPayloads is null ? null : segPayloads[i];
+                    if (p is { Length: > 0 }) { anyPayload = true; }
+                    mergedPayloads.Add(p);
+                }
                 mergedVectors.AddRange(reader.ReadAllVectors());
             }
 
@@ -380,7 +416,8 @@ internal sealed class PersistentDirectory : IDisposable
             };
             string newSegDir = GetSegmentDir(collectionId, (long)newSegSeq);
             float[] vectorArr = mergedVectors.ToArray();
-            SegmentWriter.Write(newSegDir, header, mergedKeys, vectorArr);
+            SegmentWriter.Write(newSegDir, header, mergedKeys, vectorArr,
+                anyPayload ? mergedPayloads : null);
 
             manifest.NextSegmentSequence = newSegSeq + 1;
             CollectionManifestStore.Write(GetManifestPath(collectionId), manifest);
@@ -478,6 +515,9 @@ internal sealed class PersistentDirectory : IDisposable
 
         public void OnDelete(TKey key)
             => _owner.AppendDelete(_collectionId, key);
+
+        public void OnPayload(TKey key, ReadOnlySpan<byte> encodedPayload)
+            => _owner.AppendPayload(_collectionId, key, encodedPayload);
 
         public void Dispose() { /* WalWriter 由 PersistentDirectory 拥有 */ }
     }

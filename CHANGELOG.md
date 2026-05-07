@@ -8,6 +8,26 @@
 
 ### Added
 
+- PR #M11：M11 — Payload 持久化 + 标量 B-tree pre-filter 索引（M6 延续）
+  - **Payload 持久化**
+    - `src/DotVector.Core/Storage/PayloadCodec.cs`：TLV 编解码器（key=UTF-8 + 类型 tag：null/bool/long/double/string/bytes），AOT 友好、纯 BCL
+    - `src/DotVector.Core/Wal/WalWriter.cs`：新增 type=3 `SetPayload` 记录类型；`WalReader` 同步支持 replay 恢复
+    - `src/DotVector.Core/Storage/SegmentWriter.cs` / `SegmentReader.cs`：Segment 写入新增可选 `payload.bin`，Flush 时把当前 `_payloads` 快照编码持久化；mmap 读取后 `RestorePayload` 写入运行时 dict
+    - `src/DotVector.Core/Api/Collection.cs::SetPayload` 写 WAL → 重启后通过 WAL replay + Segment payload.bin 完整恢复
+    - `tests/DotVector.Core.Tests/Persistence/PayloadPersistenceTests.cs`：4 个测试（WAL 恢复 / Flush+Segment 恢复 / 清空 payload 持久化 / Compaction 合并 payload）
+  - **标量 B-tree pre-filter 索引**
+    - `src/DotVector.Core/Storage/ScalarIndex.cs`：进程内倒排索引；数值字段用 `SortedDictionary<double, HashSet<TKey>>` 支持 Eq+Range，字符串/布尔用 hash 桶；单 monitor lock 保证并发一致性；纯 BCL，零依赖
+    - `src/DotVector.Core/Query/FilterIntrospection.cs` + `FilterIntrospectionAccessor.cs`：reflection-free 桥接，把私有 sealed Filter 节点映射到内部 record view（`EqualsView` / `RangeView` / `AndView`），AOT 友好
+    - `src/DotVector.Core/Query/Filter.cs`：基类新增 `internal virtual object? GetIntrospection()`；`FieldEqualsFilter` / `FieldRangeFilter` / `AndFilter` 提供 view 实现
+    - `src/DotVector.Core/Index/Flat/FlatIndex.cs`：新增 `SearchSubset(query, topK, candidateKeys, results)` —— 仅扫描候选行的 brute-force 搜索，复用现有 PriorityQueue topK 堆
+    - `src/DotVector.Core/Api/Collection.cs`：
+      - `_scalarIndex` 在 `SetPayload` / `StorePayload` / `RestorePayload` / `Delete` 路径上同步维护（基于 old/new payload 差量更新）
+      - `Search(query, topK, filter)`：当 filter 可被 `ScalarIndex.TryResolveCandidates` 下推且底层为 `FlatIndex<TKey>` 时，走 `SearchSubset` 直接在候选键上搜索；不可下推或非 Flat 时回退到原有 8× over-fetch + post-filter 路径
+      - 双保险：pre-filter 命中后仍调用 `filter.Matches(payload)` 做最终判定，对未下推的子条件保持正确性
+    - `tests/DotVector.Core.Tests/Index/ScalarIndexTests.cs`：9 个单元测试（string/long/bool Eq、numeric Range inclusive/half-open、And 交集、Or 不下推回 false、Update 旧值清桶、Remove 清键）
+    - `tests/DotVector.Core.Tests/Query/FilterPreFilterIntegrationTests.cs`：5 个端到端测试（Eq / Range / And / Or 回退 / Delete 后索引同步）
+  - 全部 202 个测试通过（DotVector.Core.Tests 171 + DotVector.Accuracy.Tests 17 + DotVector.Tests 14）
+
 - PR #M10：M10 — Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续）
   - `src/DotVector.Core/Catalog/CollectionManifest.cs`：每集合 manifest（`NextSegmentSequence` / `LastCoveredWalSequence`），原子写入 `manifest.bin`
   - `src/DotVector.Core/Storage/SegmentWriter.cs`：原子 Segment 写入（写 `.tmp` 目录 → `Directory.Move`）

@@ -281,6 +281,82 @@ public sealed class FlatIndex<TKey> : IIndex<TKey>, IDisposable
     }
 
     /// <summary>
+    /// 仅在指定的候选键集合内执行精确 Top-K 搜索（M11 — pre-filter 通路）。
+    /// </summary>
+    /// <param name="query">查询向量。</param>
+    /// <param name="topK">返回结果数量。</param>
+    /// <param name="candidateKeys">候选键集合；不在索引中的键会被静默忽略。</param>
+    /// <param name="results">结果缓冲区，长度 ≥ <paramref name="topK"/>。</param>
+    /// <returns>实际写入 <paramref name="results"/> 的结果数（≤ <paramref name="topK"/>）。</returns>
+    /// <remarks>
+    /// 该方法仅扫描候选行而非全部行，适用于高选择率的标量过滤场景。
+    /// </remarks>
+    public int SearchSubset(
+        ReadOnlySpan<float> query,
+        int topK,
+        IReadOnlyCollection<TKey> candidateKeys,
+        Span<(TKey Key, float Score)> results)
+    {
+        ArgumentNullException.ThrowIfNull(candidateKeys);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(topK);
+        EnsureDimension(query.Length);
+        if (results.Length < topK)
+        {
+            throw new ArgumentException(
+                $"results 缓冲区过小：需要 ≥ {topK}，实际 {results.Length}。",
+                nameof(results));
+        }
+        ThrowIfDisposed();
+
+        _lock.EnterReadLock();
+        try
+        {
+            if (_keys.Count == 0 || candidateKeys.Count == 0)
+            {
+                return 0;
+            }
+
+            ReadOnlySpan<float> storage = CollectionsMarshal.AsSpan(_vectors);
+            int effectiveK = Math.Min(topK, candidateKeys.Count);
+            bool largerBetter = _metric.IsLargerBetter();
+            var heap = new PriorityQueue<int, float>(effectiveK);
+
+            foreach (TKey key in candidateKeys)
+            {
+                if (!_keyToRow.TryGetValue(key, out int row))
+                {
+                    continue;
+                }
+                ReadOnlySpan<float> v = storage.Slice(row * _dimensions, _dimensions);
+                float score = ComputeScore(query, v);
+                float priority = largerBetter ? score : -score;
+                if (heap.Count < effectiveK)
+                {
+                    heap.Enqueue(row, priority);
+                }
+                else
+                {
+                    heap.EnqueueDequeue(row, priority);
+                }
+            }
+
+            int written = heap.Count;
+            for (int i = written - 1; i >= 0; i--)
+            {
+                int row = heap.Dequeue();
+                ReadOnlySpan<float> v = storage.Slice(row * _dimensions, _dimensions);
+                float score = ComputeScore(query, v);
+                results[i] = (_keys[row], score);
+            }
+            return written;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
     /// 检查给定主键是否存在于索引中。
     /// </summary>
     /// <param name="key">要查询的主键。</param>

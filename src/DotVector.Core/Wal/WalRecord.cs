@@ -11,6 +11,8 @@ internal enum WalRecordType : byte
     Insert = 1,
     /// <summary>删除一条向量。</summary>
     Delete = 2,
+    /// <summary>设置一条记录的标量 payload（M11）。</summary>
+    SetPayload = 3,
 }
 
 /// <summary>

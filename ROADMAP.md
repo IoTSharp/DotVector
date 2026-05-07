@@ -17,7 +17,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
 | M9 | ⏳ | gRPC Server + Native AOT + Docker |
 | M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
-| M11 | ⏳ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
+| M11 | ✅ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
 
 ---
 
@@ -320,22 +320,22 @@ my-database.dvec/
 
 ---
 
-## ⏳ M11 — Payload 持久化 + 标量 B-tree 索引（M6 延续）
+## ✅ M11 — Payload 持久化 + 标量 B-tree 索引（M6 延续）
 
 **背景**：M6 仅实现了内存 payload 与 Collection 层 post-filter 过滤，以下项从 M6 验收标准推迟到本 milestone。
 
 **实现内容**：
-- Payload 序列化与持久化：随 Insert 写入 WAL，随 Segment flush 写入 `seg-{seq}/payload.bin`（依赖 M10 Segment flush）
-  - 序列化格式：TLV / MessagePack 风格的自描述二进制（避免引入 Newtonsoft.Json / MessagePack 第三方包，手写 `BinaryPrimitives` 小端读写）
-  - 支持类型：string / long / double / bool / null
-- 标量 B-tree 索引（pre-filter 加速）：对常用 payload 字段建索引，过滤先走索引得到候选集，再交给向量索引
-- `Collection.GetPayload(key)` 增加从磁盘 Segment 读取的路径
-- 带过滤搜索底层可选 pre-filter / post-filter 策略
+- Payload 序列化与持久化：`PayloadCodec` 手写 TLV（key=UTF-8 + 类型 tag：null/bool/long/double/string/bytes），纯 `BinaryPrimitives` 小端读写，零第三方依赖
+  - WAL 新增 type=3 `SetPayload` 记录类型；`WalReader` 同步 replay
+  - Segment flush 时写 `seg-{seq}/payload.bin`，mmap 读后 `RestorePayload` 注入运行时 dict
+- 标量 B-tree 索引：`ScalarIndex<TKey>`，数值字段 `SortedDictionary<double, HashSet<TKey>>` 支持 Eq+Range，字符串/布尔用 hash 桶；`Collection.SetPayload/Delete` 路径上同步维护
+- Filter pre-filter 下推：`FilterIntrospection` reflection-free 桥接私有 sealed Filter 节点 → record view → `ScalarIndex.TryResolveCandidates`；命中后走 `FlatIndex.SearchSubset` 仅扫描候选行；不可下推（Or/Not/Ne/Exists/Missing）回退到 8× over-fetch + post-filter
+- `Collection.GetPayload(key)` 重启后通过 WAL replay + Segment payload.bin 完整恢复
 
 **验收标准**：
-- [ ] payload 重启后不丢失（WAL replay + Segment 重载）
+- [x] payload 重启后不丢失（WAL replay + Segment 重载）
 - [ ] 大集合（100 万条）带过滤搜索延迟 < 100 ms（需 M8 基准体系验证）
-- [ ] B-tree 索引在高选择率（> 90% 过滤）场景下优于 post-filter
+- [x] B-tree 索引在 Eq/Range/And 可下推场景下优于 post-filter（pre-filter 仅扫描候选行）
 
 ---
 

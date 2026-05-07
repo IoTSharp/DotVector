@@ -12,4 +12,10 @@ internal interface IWriteSink<TKey> where TKey : notnull
 
     /// <summary>删除一条记录前调用。</summary>
     void OnDelete(TKey key);
+
+    /// <summary>设置或清空一条记录的标量 payload（M11）。</summary>
+    /// <param name="key">记录主键。</param>
+    /// <param name="encodedPayload">已通过 <see cref="PayloadCodec"/> 编码的 payload 字节序列；
+    /// 长度为 0 表示清空 payload。</param>
+    void OnPayload(TKey key, ReadOnlySpan<byte> encodedPayload);
 }

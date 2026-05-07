@@ -27,6 +27,13 @@ public abstract class Filter
     /// <returns>满足条件返回 <see langword="true"/>，否则返回 <see langword="false"/>。</returns>
     public abstract bool Matches(IReadOnlyDictionary<string, object?>? payload);
 
+    /// <summary>
+    /// 内部钩子：把当前节点投影到 <see cref="FilterIntrospection"/> 视图，
+    /// 让 <c>ScalarIndex</c> 等内部组件不依赖具体子类即可下推过滤条件。
+    /// 默认返回 <see langword="null"/>，调用方须把"无法识别"视为不可下推。
+    /// </summary>
+    internal virtual object? GetIntrospection() => null;
+
     /// <summary>构造字段相等过滤：<c>payload[field] == value</c>。</summary>
     public static Filter Eq(string field, object? value)
     {
@@ -143,6 +150,8 @@ public abstract class Filter
             }
             return Equals(actual, _value);
         }
+        internal override object? GetIntrospection()
+            => _value is null ? null : new FilterIntrospection.EqualsView(_field, _value);
     }
 
     private sealed class FieldNotEqualsFilter : Filter
@@ -195,6 +204,8 @@ public abstract class Filter
             }
             return true;
         }
+        internal override object? GetIntrospection()
+            => new FilterIntrospection.RangeView(_field, _min, _max, _minInclusive, _maxInclusive);
     }
 
     private sealed class FieldExistsFilter : Filter
@@ -230,6 +241,7 @@ public abstract class Filter
             }
             return true;
         }
+        internal override object? GetIntrospection() => new FilterIntrospection.AndView(_filters);
     }
 
     private sealed class OrFilter : Filter

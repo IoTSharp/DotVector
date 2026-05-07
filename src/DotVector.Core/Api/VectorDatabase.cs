@@ -117,6 +117,21 @@ public sealed class VectorDatabase : IDisposable
                 }
                 collection.InsertBatch(batch);
                 totalRestored += n;
+
+                // M11：恢复 payload（不写 WAL，避免回放副作用）
+                IReadOnlyList<byte[]?>? encodedPayloads = seg.EncodedPayloads;
+                if (encodedPayloads is not null)
+                {
+                    for (int i = 0; i < n; i++)
+                    {
+                        byte[]? enc = encodedPayloads[i];
+                        if (enc is { Length: > 0 })
+                        {
+                            Dictionary<string, object?> dict = PayloadCodec.Decode(enc);
+                            collection.RestorePayload(seg.Keys[i], dict);
+                        }
+                    }
+                }
             }
         }
         _persistent.NotifyRestoredRowCount(entry.CollectionId, totalRestored);
@@ -161,6 +176,21 @@ public sealed class VectorDatabase : IDisposable
                 case WalRecordType.Delete:
                     collection.Delete(key);
                     break;
+                case WalRecordType.SetPayload:
+                {
+                    uint payloadLen = reader.ReadUInt32();
+                    if (payloadLen == 0)
+                    {
+                        collection.RestorePayload(key, null);
+                    }
+                    else
+                    {
+                        ReadOnlySpan<byte> payloadBytes = reader.ReadBytes((int)payloadLen);
+                        Dictionary<string, object?> dict = PayloadCodec.Decode(payloadBytes);
+                        collection.RestorePayload(key, dict);
+                    }
+                    break;
+                }
                 default:
                     throw new DotVectorException($"未知 WAL 记录类型：{record.Type}");
             }

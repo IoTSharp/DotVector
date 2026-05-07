@@ -22,6 +22,9 @@ DotVector 是一个**嵌入式、进程内**向量数据库类库，可通过 Nu
 - Native AOT — 毫秒级启动，容器镜像极小
 - `Microsoft.Extensions.VectorData` — 与 Semantic Kernel 天然集成
 
+> **社区版（CE） vs 企业版（EE）**：本仓库 `IoTSharp/DotVector` 即 **DotVector CE 社区版**，遵循 MIT 许可，覆盖完整的嵌入式向量数据库引擎（存储、索引、量化、`VectorData` 适配等）。
+> 硬件加速后端（ONNX Runtime / DirectML / CUDA 等可选 NuGet 包）独立维护于 [`IoTSharp/DotVectorEE`](https://github.com/IoTSharp/DotVectorEE) 企业版仓库，按 EE 自身许可发布；EE 通过 git submodule 引用本 CE 仓库作为其内核。
+
 ---
 
 ## 与同类产品的差异化定位

@@ -13,7 +13,7 @@
   - `src/DotVector.Core/Compute/CpuTensorPrimitivesScorer.cs`（新增）：默认 CPU 实现，单例 `Instance`；逐行委托 `Distance.Compute`，与既有路径 bit-identical；显式拒绝 `Metric.Hamming`，并校验 `dataset.Length == scores.Length × query.Length`
   - `src/DotVector.Core/Index/Flat/FlatIndex.cs`：构造函数末尾追加可选参数 `IBatchScorer? scorer = null`（向后兼容）；`Search` 在注入 scorer 时通过 `ArrayPool<float>.Shared` 租借一次性批量打分缓冲，否则保留既有逐行 SIMD 路径，零额外分配；`SearchSubset` 暂保持逐行路径（稀疏行收集后续 PR 处理）
   - `tests/DotVector.Core.Tests/Compute/BatchScorerTests.cs`（新增 6 个测试）：`CpuTensorPrimitivesScorer` 与 `Distance.Compute` 在 L2/Cosine/InnerProduct/DotProduct 下完全相等；Hamming 抛出 `NotSupportedException`；dataset 长度错配抛 `ArgumentException`；空数据集 no-op；`FlatIndex` 注入 scorer 与默认路径返回的 Top-K 键序与分数完全一致
-  - 为 M14.2 ONNX Runtime scorer（独立可选包 `src/DotVector.Acceleration.Onnx/`）预留接口
+  - 为外部硬件加速包（如 ONNX Runtime / CUDA / DirectML 等，详见 [DotVectorEE](https://github.com/IoTSharp/DotVectorEE) 企业版仓库）预留 `IBatchScorer` 注入点；CE 仓库自身不引入任何加速器运行时依赖
 
 - PR #M13.5b：M13.5b — `quantizer.bin` 接入 `SegmentWriter`/`SegmentReader` + `IvfPqIndex` 复用 `IQuantizedScorer`
   - `src/DotVector.Core/Storage/SegmentWriter.cs`：新增 `Write<TKey>(..., IReadOnlyList<byte[]?>? payloads, IVectorQuantizer? quantizer)` 6 参重载；`quantizer is not null` 时在原子 `Directory.Move` 之前通过 `QuantizerSerializer.Write` 落盘 `quantizer.bin`，并 `FlushToDisk(true)`；为 `null` 时不生成该文件，旧 5 参重载与既有调用点签名保持不变（向后兼容）

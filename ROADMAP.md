@@ -23,7 +23,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M11 | ✅ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
 | M12 | ✅ | DiskANN（Vamana 图）+ 磁盘驻留索引 |
 | M13 | ✅ | 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象 |
-| M14 | 🚧 | 硬件加速：ONNX-Runtime / GPU 距离内核（可选包） |
+| M14 | ✅ | 硬件加速接口：`IBatchScorer` 抽象（CE 仅保留 M14.1；具体加速后端见 [DotVectorEE](https://github.com/IoTSharp/DotVectorEE)）|
 
 ---
 
@@ -519,46 +519,35 @@ my-database.dvec/
 
 ---
 
-## 🚧 M14 — 硬件加速：ONNX-Runtime / GPU 距离内核（可选包）
+## ✅ M14 — 硬件加速接口：`IBatchScorer`（CE 仅保留抽象）
 
-**目标**：在**不破坏 `DotVector.Core` 零第三方依赖约束**的前提下，提供可选 GPU / 加速器距离内核。硬件加速**不进** `DotVector.Core`，单独成 NuGet 包，通过 `IBatchScorer` 接口注入。
+**范围说明（CE 社区版）**：
+为保持 `DotVector.Core` **零第三方运行时依赖**约束，本仓库（CE）**只承担 M14.1**：在 Core 中定义 `IBatchScorer` 抽象与默认 `CpuTensorPrimitivesScorer` 实现，并在 `FlatIndex<TKey>` 上提供注入点。所有具体加速器后端（ONNX Runtime CPU EP / DirectML / CUDA / Metal 等）一律下沉到独立企业版仓库 [DotVectorEE](https://github.com/IoTSharp/DotVectorEE)，作为可选 NuGet 包发布。
 
 **架构**：
 ```
-DotVector.Core               ← 仍零第三方依赖；定义 IBatchScorer 接口 + 默认 CPU 实现
-DotVector.Acceleration.Onnx  ← 新增包，依赖 Microsoft.ML.OnnxRuntime
-DotVector.Acceleration.Cuda  ← 可选包（仅 linux-x64 / win-x64），依赖 Microsoft.ML.OnnxRuntime.Gpu
+[CE]  DotVector.Core                       ← 零第三方运行时依赖；定义 IBatchScorer + CpuTensorPrimitivesScorer
+[EE]  DotVector.Acceleration.Onnx          ← 依赖 Microsoft.ML.OnnxRuntime（CPU EP）
+[EE]  DotVector.Acceleration.Onnx.DirectML ← 依赖 Microsoft.ML.OnnxRuntime.DirectML（Windows）
+[EE]  DotVector.Acceleration.Cuda          ← 可选（linux-x64 / win-x64），依赖 Microsoft.ML.OnnxRuntime.Gpu
 ```
 
-**实现内容**：
-- `IBatchScorer`（Core）— 新接口：`Score(ReadOnlySpan<float> query, ReadOnlySpan<float> dataset, Span<float> scores, Metric)`；批量打分而非单点距离
+**CE 侧实现内容**：
+- `IBatchScorer`（Core）— 接口：`Score(ReadOnlySpan<float> query, ReadOnlySpan<float> dataset, Span<float> scores, Metric)`；批量打分而非单点距离
 - `CpuTensorPrimitivesScorer`（Core）— 默认实现，包装现有 `Distance.cs`
-- `OnnxRuntimeScorer`（Acceleration.Onnx）— 把 "距离矩阵" 建为最小 ONNX 图（MatMul + reduction）；首次调用时 warm-up；支持 CPU / DirectML / CUDA EP
-- `OnnxAccelerationOptions` — EP 选择、batch size、prefer-fp16 等
-- `FlatIndex<TKey>` 注入点 — 接受 `IBatchScorer`，默认 CPU；用户可在构造时替换
+- `FlatIndex<TKey>` 注入点 — 接受 `IBatchScorer`，默认 CPU；用户可在构造时替换为 EE 加速器
 
-**AOT 兼容性边界**：`Acceleration.Onnx` 不要求 `IsAotCompatible=true`（ONNX 反射较多）；Core 路径仍 AOT-clean。
+**CE 验收标准**：
+- [x] `DotVector.Core` 项目文件未新增任何第三方包引用
+- [x] `IBatchScorer` 接口 round-trip：CPU scorer 与 `Distance.cs` 计算结果在标量路径下 bit-identical
+- [x] `FlatIndex<TKey>` 通过可选构造参数注入 `IBatchScorer`，默认参数保持向后兼容
 
-**参考**：
-- ONNX Runtime EP 文档：DirectML / CUDA / TensorRT / CoreML
-- pgvector GPU fork、Milvus Knowhere GPU 索引设计
-
-**验收标准**：
-- [ ] `DotVector.Core` 项目文件未新增任何第三方包引用（用 `dotnet list package` 断言）
-- [ ] `IBatchScorer` 接口 round-trip：CPU scorer 与 `Distance.cs` 计算结果在标量路径下 bit-identical
-- [ ] `OnnxRuntimeScorer` 在 CPU EP 下与 CPU scorer 数值差 < 1e-4，召回完全一致
-- [ ] DirectML / CUDA EP（按平台）批量打分吞吐相对 CPU ≥ 3×（dim=384, batch=10000）
-- [ ] `Acceleration.Onnx` 包独立可发布；`DotVector.Cli` 不强制依赖（按 `--accel onnx` 显式启用）
-- [ ] 文档：`docs/acceleration.md` 描述 EP 选择决策树
-- [ ] AOT trim：Core 路径仍 0 警告；Acceleration 包允许 IL2026 但需在 csproj 中 `<IsAotCompatible>false</IsAotCompatible>` 显式标注
-
-**PR 切分**：
+**PR 切分（CE）**：
 | PR | 内容 |
 |---|---|
 | #M14.1 | `IBatchScorer` 接口 + `CpuTensorPrimitivesScorer` + `FlatIndex` 注入点；保持现有 API 兼容（默认参数走 CPU）|
-| #M14.2 | 新建 `src/DotVector.Acceleration.Onnx/` + `OnnxRuntimeScorer`（CPU EP）+ 端到端单测：与 CPU scorer 数值差 < 1e-4 |
-| #M14.3 | DirectML EP 适配（Windows）+ 性能基准（vs CPU 至少 3×）|
-| #M14.4（可选） | CUDA EP 适配 + Linux CI 矩阵 |
+
+> M14.2（`Acceleration.Onnx` CPU EP）、M14.3（DirectML EP + 基准）、M14.4（CUDA EP）等具体加速后端全部转入 [DotVectorEE](https://github.com/IoTSharp/DotVectorEE) 企业版仓库；进度与基准数据请参考 EE 仓库的 ROADMAP / CHANGELOG。
 
 ---
 

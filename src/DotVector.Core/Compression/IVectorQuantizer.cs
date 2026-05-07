@@ -52,4 +52,12 @@ public interface IVectorQuantizer
     /// <param name="code">编码字节，长度 ≥ <see cref="CodeBytes"/>。</param>
     /// <param name="vector">输出向量缓冲，长度 ≥ <see cref="Dimensions"/>。</param>
     void Decode(ReadOnlySpan<byte> code, Span<float> vector);
+
+    /// <summary>
+    /// 基于查询向量构造打分器（持有该查询的预计算状态：ADC LUT、归一化等）。
+    /// 返回的 <see cref="IQuantizedScorer"/> 实例非线程安全，按查询独立创建。
+    /// </summary>
+    /// <param name="query">查询向量，长度 = <see cref="Dimensions"/>。</param>
+    /// <returns>面向该查询的量化打分内核（L2² 语义）。</returns>
+    IQuantizedScorer BuildScorer(ReadOnlySpan<float> query);
 }

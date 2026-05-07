@@ -78,6 +78,20 @@ public sealed class ResidualQuantizer : IVectorQuantizer
     /// <summary>训练后的全部码本数据（<c>Levels × Ksub × Dimensions</c> 行优先）。</summary>
     internal ReadOnlySpan<float> Centroids => _centroids;
 
+    /// <summary>
+    /// 从持久化的 centroids 数据直接装载已训练状态（仅供 QuantizerSerializer 使用）。
+    /// </summary>
+    internal void LoadState(ReadOnlySpan<float> centroids)
+    {
+        if (centroids.Length != _centroids.Length)
+        {
+            throw new ArgumentException(
+                $"centroids 长度（{centroids.Length}）与 RQ 码本布局（{_centroids.Length}）不一致。");
+        }
+        centroids.CopyTo(_centroids);
+        _trained = true;
+    }
+
     /// <inheritdoc />
     public void Train(ReadOnlySpan<float> data, int count)
     {

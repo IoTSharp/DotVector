@@ -58,6 +58,15 @@ public sealed class ProductQuantizer : IVectorQuantizer
     /// <summary>底层码本（仅用于诊断 / 持久化集成）。</summary>
     internal PqCodebook Codebook => _codebook;
 
+    /// <summary>
+    /// 从持久化数据装载已训练状态（仅供 QuantizerSerializer 使用）。
+    /// </summary>
+    internal void LoadState(ReadOnlySpan<float> centroids)
+    {
+        _codebook.LoadCentroids(centroids);
+        _trained = true;
+    }
+
     /// <inheritdoc/>
     public void Train(ReadOnlySpan<float> data, int count)
     {

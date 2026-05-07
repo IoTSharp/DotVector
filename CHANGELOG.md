@@ -8,6 +8,18 @@
 
 ### Added
 
+- PR #M13.5a：M13.5a — `IVectorQuantizer.BuildScorer` 全量化器统一 + `QuantizerSerializer` 持久化 + `QuantizedFlatIndex<TKey>` 量化线性扫描索引
+  - `src/DotVector.Core/Compression/IVectorQuantizer.cs`：在接口层声明 `BuildScorer(ReadOnlySpan<float> query) → IQuantizedScorer`，统一 SQ8/PQ/OPQ/RQ 四种量化器的查询打分入口
+  - `src/DotVector.Core/Compression/ScalarQuantizer8.cs`：新增 internal `Sq8DecompressScorer`（重建 + L2² via `TensorPrimitives.SumOfSquares`），并新增 internal `Min/Scale` 只读视图与 `LoadState(min, scale)` 重算 `_invScale`，供反序列化无暴露公共 setter 重建
+  - `src/DotVector.Core/Compression/PqCodebook.cs`：新增 internal `LoadCentroids(ReadOnlySpan<float>)` 校验长度并复制
+  - `src/DotVector.Core/Compression/ProductQuantizer.cs` / `OptimizedProductQuantizer.cs` / `ResidualQuantizer.cs`：新增 internal `LoadState(...)` 重建训练后状态
+  - `src/DotVector.Core/Compression/QuantizerSerializer.cs`（新增）：自描述二进制持久化（首字节 `QuantizerKind`），SQ8 = `i32 dim + f32[dim] min + f32[dim] scale`；PQ = `i32 dim/m/ksub + f32[m·ksub·subDim]`；OPQ = PQ 头 + `f32[d²] R + f32 centroids`；RQ = `i32 dim/levels/ksub + f32[levels·ksub·dim]`；little-endian + `MemoryMarshal.AsBytes<float>` 直拷
+  - `src/DotVector.Core/Index/Flat/QuantizedFlatIndex.cs`（新增）：实现 `IIndex<TKey>`，使用已训练 `IVectorQuantizer` 在 Add 时编码为 `byte[]`，Search 时通过 `BuildScorer` 单次构建打分器后线性扫描；`ReaderWriterLockSlim` 多读单写、`PriorityQueue<int,float>(priority=-score)` 维护 Top-K，AddBatch 在锁外编码、`Snapshot(out keys, out codes)` 用于 Segment 落盘；当前仅支持 `Metric.L2`（其他度量需量化感知打分器，后续 PR 扩展）
+  - `tests/DotVector.Core.Tests/Compression/QuantizerSerializerTests.cs`（新增 6 个测试）：null / 未训练抛出 / SQ8|PQ|OPQ|RQ 各自 Write→Read 后 Encode 字节相同
+  - `tests/DotVector.Core.Tests/Index/Flat/QuantizedFlatIndexTests.cs`（新增 9 个测试）：未训练量化器 / 非 L2 / 重复键 / 维度错配 / 空索引搜索 / Remove / SQ8 vs raw FlatIndex Top-10 重合率 ≥ 0.8 / 自查询 top1 命中 ≥ 45/50 / Snapshot 形状
+  - 全量回归：339 个测试通过（baseline 324 + 新增 15）
+  - 后续 PR：M13.5b（`SegmentWriter`/`Reader` 接入 `quantizer.bin` + IvfPq 复用 `IQuantizedScorer` + `FileHeader.Version` 升级）
+
 - PR #M13.4：M13.4 — `ResidualQuantizer`（RQ）多级残差码本量化器 + 召回率回归
   - `src/DotVector.Core/Compression/ResidualQuantizer.cs`（新增）：实现 `IVectorQuantizer`（`Kind=Rq`，`CodeBytes=Levels`，每级 `Ksub=256`）；`Train` 逐级 K-Means（`KMeans.Train`，per-level `seed = baseSeed + level`），训练完一级后用 `TensorPrimitives.Subtract` 在 ArrayPool 残差缓冲上原位扣除，得到下一级训练数据；`Encode` 逐级 `KMeans.FindNearest` + 残差更新，`stackalloc 1024` 阈值之下走栈；`Decode` 累加各级被选中心；`BuildScorer` 返回内部 `RqDecompressScorer`，按 FAISS ST_decompress 风格直接重建向量后用 `TensorPrimitives.SumOfSquares` 计算 L2²，避免 `M*(M-1)/2 * K²` 交叉项 LUT 内存
   - `tests/DotVector.Core.Tests/Compression/ResidualQuantizerTests.cs`（新增 10 个测试）：构造参数校验 / Encode|Decode|BuildScorer 未训练抛 `InvalidOperationException` / Train 数据不足 K=256 抛 `ArgumentOutOfRangeException` / `Kind=Rq` / Encode→Decode round-trip 形状与有限性 / **更高级数严格降低 MSE**（levels 2 → 4 → 8）/ **ADC 与解码后 L2² 一致性**（容差 `max(1e-2, refScore × 1e-4)`）/ **合成高斯簇 4 级 Recall@10 ≥ 0.80**

@@ -55,6 +55,24 @@ public sealed class ScalarQuantizer8 : IVectorQuantizer
     /// <summary>逐维 step = (max - min) / 255（训练后只读快照）。</summary>
     internal ReadOnlySpan<float> Scale => _scale;
 
+    /// <summary>
+    /// 从持久化的 min/scale 数组直接装载已训练状态（仅供 QuantizerSerializer 使用）。
+    /// </summary>
+    internal void LoadState(ReadOnlySpan<float> min, ReadOnlySpan<float> scale)
+    {
+        if (min.Length != _dimensions || scale.Length != _dimensions)
+        {
+            throw new ArgumentException("min / scale 长度与 Dimensions 不一致。");
+        }
+        min.CopyTo(_min);
+        scale.CopyTo(_scale);
+        for (int d = 0; d < _dimensions; d++)
+        {
+            _invScale[d] = scale[d] > 0f ? 1f / scale[d] : 0f;
+        }
+        _trained = true;
+    }
+
     /// <inheritdoc />
     public void Train(ReadOnlySpan<float> data, int count)
     {
@@ -160,6 +178,48 @@ public sealed class ScalarQuantizer8 : IVectorQuantizer
         for (int d = 0; d < _dimensions; d++)
         {
             vector[d] = _min[d] + code[d] * _scale[d];
+        }
+    }
+
+    /// <inheritdoc />
+    public IQuantizedScorer BuildScorer(ReadOnlySpan<float> query)
+    {
+        EnsureTrained();
+        if (query.Length != _dimensions)
+        {
+            throw new ArgumentException(
+                $"query 维度（{query.Length}）与量化器维度（{_dimensions}）不一致。",
+                nameof(query));
+        }
+        return new Sq8DecompressScorer(this, query);
+    }
+
+    private sealed class Sq8DecompressScorer : IQuantizedScorer
+    {
+        private readonly ScalarQuantizer8 _q;
+        private readonly float[] _query;
+
+        public Sq8DecompressScorer(ScalarQuantizer8 q, ReadOnlySpan<float> query)
+        {
+            _q = q;
+            _query = query.ToArray();
+        }
+
+        public int CodeBytes => _q._dimensions;
+
+        public float Score(ReadOnlySpan<byte> code)
+        {
+            int dim = _q._dimensions;
+            float[] min = _q._min;
+            float[] scale = _q._scale;
+            float sum = 0f;
+            for (int d = 0; d < dim; d++)
+            {
+                float reconstructed = min[d] + code[d] * scale[d];
+                float diff = _query[d] - reconstructed;
+                sum += diff * diff;
+            }
+            return sum;
         }
     }
 

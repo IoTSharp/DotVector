@@ -67,6 +67,19 @@ public sealed class PqCodebook
     internal ReadOnlySpan<float> Centroids => _centroids;
 
     /// <summary>
+    /// 从持久化的 centroids 数据直接装载（仅供 QuantizerSerializer 使用）。
+    /// </summary>
+    internal void LoadCentroids(ReadOnlySpan<float> centroids)
+    {
+        if (centroids.Length != _centroids.Length)
+        {
+            throw new ArgumentException(
+                $"centroids 长度（{centroids.Length}）与码本布局（{_centroids.Length}）不一致。");
+        }
+        centroids.CopyTo(_centroids);
+    }
+
+    /// <summary>
     /// 在训练数据上训练码本。
     /// </summary>
     /// <param name="data">行优先训练数据，长度 = <paramref name="count"/> × <see cref="Dimensions"/>。</param>

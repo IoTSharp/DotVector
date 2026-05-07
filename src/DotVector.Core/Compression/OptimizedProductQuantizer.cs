@@ -102,6 +102,24 @@ public sealed class OptimizedProductQuantizer : IVectorQuantizer
     /// <summary>内部 PQ（仅供测试使用）。</summary>
     internal ProductQuantizer InnerPq => _pq;
 
+    /// <summary>
+    /// 从持久化数据装载已训练状态（仅供 QuantizerSerializer 使用）。
+    /// </summary>
+    /// <param name="rotation">D×D 行优先旋转矩阵。</param>
+    /// <param name="pqCentroids">内部 PQ 的 <c>M × Ksub × SubDim</c> 行优先 centroids。</param>
+    internal void LoadState(ReadOnlySpan<float> rotation, ReadOnlySpan<float> pqCentroids)
+    {
+        if (rotation.Length != _rotation.Length)
+        {
+            throw new ArgumentException(
+                $"rotation 长度（{rotation.Length}）与 D×D（{_rotation.Length}）不一致。",
+                nameof(rotation));
+        }
+        rotation.CopyTo(_rotation);
+        _pq.LoadState(pqCentroids);
+        _trained = true;
+    }
+
     /// <inheritdoc/>
     public void Train(ReadOnlySpan<float> data, int count)
     {

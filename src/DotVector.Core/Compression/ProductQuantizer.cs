@@ -37,6 +37,19 @@ public sealed class ProductQuantizer : IVectorQuantizer
         _seed = seed;
     }
 
+    /// <summary>
+    /// 包装一个已训练的 <see cref="PqCodebook"/>（仅供 IvfPqIndex 等内部组件复用，
+    /// 不复制 centroids，所有权由调用方保持）。
+    /// </summary>
+    internal ProductQuantizer(PqCodebook trainedCodebook)
+    {
+        ArgumentNullException.ThrowIfNull(trainedCodebook);
+        _codebook = trainedCodebook;
+        _maxIterations = 1;
+        _seed = null;
+        _trained = true;
+    }
+
     /// <inheritdoc/>
     public QuantizerKind Kind => QuantizerKind.Pq;
 

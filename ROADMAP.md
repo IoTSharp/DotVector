@@ -22,8 +22,8 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
 | M11 | ✅ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
 | M12 | ✅ | DiskANN（Vamana 图）+ 磁盘驻留索引 |
-| M13 | ⏳ | 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象 |
-| M14 | ⏳ | 硬件加速：ONNX-Runtime / GPU 距离内核（可选包） |
+| M13 | ✅ | 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象 |
+| M14 | 🚧 | 硬件加速：ONNX-Runtime / GPU 距离内核（可选包） |
 
 ---
 
@@ -467,7 +467,7 @@ my-database.dvec/
 
 ---
 
-## ⏳ M13 — 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象
+## ✅ M13 — 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象
 
 **目标**：把 "量化" 从 IVF 内部细节升格为**一等抽象**（`IVectorQuantizer`），让 Flat / HNSW / Vamana 都能选用 SQ / PQ / OPQ / RQ；同时把 PQ 提升到生产级（OPQ 旋转、ADC 距离表、SIMD 化）。
 
@@ -513,11 +513,13 @@ my-database.dvec/
 | #M13.2 | `ProductQuantizer` 重构（从 `PqCodebook` 抽离）+ ADC `QuantizedDistanceKernel` + SIMD 加速 |
 | #M13.3 | `OptimizedProductQuantizer`（含纯托管 SVD 实现 + 收敛单测）|
 | #M13.4 | `ResidualQuantizer` + 召回率回归 |
-| #M13.5 | `IvfPqIndex` / `FlatIndex` 接入新抽象，`quantizer.bin` 持久化 + 升级 `FileHeader.Version` |
+| #M13.5 | `IvfPqIndex` / `FlatIndex` 接入新抽象，`quantizer.bin` 持久化（拆分为 #M13.5a + #M13.5b 完成；按用户决策未升级 `FileHeader.Version`，改为按 sidecar 文件存在性向后兼容）|
+| #M13.5a | `IVectorQuantizer.BuildScorer` 全量化器统一 + `QuantizerSerializer` + `QuantizedFlatIndex<TKey>` |
+| #M13.5b | `quantizer.bin` 接入 `SegmentWriter` / `SegmentReader` + `IvfPqIndex` 复用 `IQuantizedScorer` |
 
 ---
 
-## ⏳ M14 — 硬件加速：ONNX-Runtime / GPU 距离内核（可选包）
+## 🚧 M14 — 硬件加速：ONNX-Runtime / GPU 距离内核（可选包）
 
 **目标**：在**不破坏 `DotVector.Core` 零第三方依赖约束**的前提下，提供可选 GPU / 加速器距离内核。硬件加速**不进** `DotVector.Core`，单独成 NuGet 包，通过 `IBatchScorer` 接口注入。
 

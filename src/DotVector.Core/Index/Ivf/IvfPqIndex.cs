@@ -54,6 +54,7 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
     private int _codeCapacityRows;
     private int _rowCount;
     private PqCodebook? _codebook;
+    private ProductQuantizer? _pq;        // 包装 _codebook，提供 IQuantizedScorer。
     private bool _isTrained;
     private bool _disposed;
 
@@ -284,7 +285,7 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
     {
         ReadOnlySpan<float> centroids = _centroids!;
         List<int>[] lists = _invertedLists!;
-        PqCodebook codebook = _codebook!;
+        ProductQuantizer pq = _pq!;
         int nList = _options.NList;
         int nProbe = Math.Min(_options.NProbe, nList);
         int m = _options.M;
@@ -313,11 +314,10 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
             probedLists[probedCount++] = listId;
         }
 
-        // 2) 对每个被探测的列表：计算残差查询，构造 LUT，扫码取分数。
+        // 2) 对每个被探测的列表：计算残差查询，构造 IQuantizedScorer，扫码取分数。
         int effectiveK = Math.Min(topK, _keys.Count);
         var kHeap = new PriorityQueue<int, float>(effectiveK);
 
-        var lut = new float[m * PqCodebook.Ksub];
         var residual = new float[_dimensions];
         ReadOnlySpan<byte> allCodes = _codes!;
 
@@ -330,14 +330,14 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
             {
                 residual[i] = query[i] - centroid[i];
             }
-            codebook.BuildLookupTable(residual, lut);
+            IQuantizedScorer scorer = pq.BuildScorer(residual);
 
             List<int> bucket = lists[listId];
             for (int j = 0; j < bucket.Count; j++)
             {
                 int row = bucket[j];
                 ReadOnlySpan<byte> code = allCodes.Slice(row * m, m);
-                float adcL2Sq = codebook.ScoreWithLookup(lut, code);
+                float adcL2Sq = scorer.Score(code);
                 // ADC 给出的是残差 L2 平方 → 整体近似 L2 平方。
                 // 对所有 metric，先按"距离越小越好"统一选 top-K；写出时再做语义换算。
                 float proxy = -adcL2Sq;
@@ -353,21 +353,22 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
         }
 
         int n = kHeap.Count;
+        // 缓存每个 list 的 scorer，避免重复构造 LUT。
+        var scorerCache = new Dictionary<int, IQuantizedScorer>(probedCount);
         // 倒序写入：results[0] = 最相似。
         for (int i = n - 1; i >= 0; i--)
         {
             int row = kHeap.Dequeue();
-            // 重新换算"对外分数"：
-            // - L2：直接返回 L2 平方近似。
-            // - Cosine：L2² ≈ 2(1 - cos)（向量已归一化时），返回近似 1 - L2²/2。
-            // - InnerProduct / DotProduct：返回 -L2²/2 作为近似排序分数（仅相对意义有效）。
-            // 召回质量评估见 IvfRecallTests。
             int listId = _rowToList[row];
-            ReadOnlySpan<float> centroid = centroids.Slice(listId * _dimensions, _dimensions);
-            for (int i2 = 0; i2 < _dimensions; i2++) { residual[i2] = query[i2] - centroid[i2]; }
-            codebook.BuildLookupTable(residual, lut);
+            if (!scorerCache.TryGetValue(listId, out IQuantizedScorer? scorer))
+            {
+                ReadOnlySpan<float> centroid = centroids.Slice(listId * _dimensions, _dimensions);
+                for (int i2 = 0; i2 < _dimensions; i2++) { residual[i2] = query[i2] - centroid[i2]; }
+                scorer = pq.BuildScorer(residual);
+                scorerCache[listId] = scorer;
+            }
             ReadOnlySpan<byte> code = allCodes.Slice(row * m, m);
-            float adcL2Sq = codebook.ScoreWithLookup(lut, code);
+            float adcL2Sq = scorer.Score(code);
 
             float reported = _metric switch
             {
@@ -440,6 +441,7 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
         int? pqSeed = _options.Seed.HasValue ? _options.Seed.Value + 0x10000 : null;
         codebook.Train(residuals, n, _options.MaxIterations, pqSeed);
         _codebook = codebook;
+        _pq = new ProductQuantizer(codebook);
 
         // 4) 编码全部训练向量。
         EnsureCodeCapacity(n);

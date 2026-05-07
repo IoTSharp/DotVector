@@ -1,6 +1,7 @@
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using DotVector.Compression;
 using DotVector.Exceptions;
 using DotVector.Format;
 using DotVector.IO;
@@ -34,13 +35,18 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
     /// 当 Segment 不含 <c>payload.bin</c> 时为 <see langword="null"/>。</summary>
     public IReadOnlyList<byte[]?>? EncodedPayloads { get; }
 
+    /// <summary>该 Segment 携带的已训练量化器；当 Segment 目录不含 <c>quantizer.bin</c>
+    /// 或文件首字节为 <see cref="QuantizerKind.None"/> 时为 <see langword="null"/>（M13.5b）。</summary>
+    public IVectorQuantizer? Quantizer { get; }
+
     private SegmentReader(
         SegmentHeader header,
         IReadOnlyList<TKey> keys,
         MemoryMappedFile mmf,
         MemoryMappedViewAccessor accessor,
         long vectorBytes,
-        IReadOnlyList<byte[]?>? encodedPayloads)
+        IReadOnlyList<byte[]?>? encodedPayloads,
+        IVectorQuantizer? quantizer)
     {
         Header = header;
         Keys = keys;
@@ -48,6 +54,7 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
         _vectorsAccessor = accessor;
         _vectorBytes = vectorBytes;
         EncodedPayloads = encodedPayloads;
+        Quantizer = quantizer;
     }
 
     /// <summary>打开指定 Segment 目录。</summary>
@@ -116,12 +123,21 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
             encodedPayloads = arr;
         }
 
+        // quantizer.bin（M13.5b，可选）
+        IVectorQuantizer? quantizer = null;
+        string quantizerPath = Path.Combine(segmentDirectory, "quantizer.bin");
+        if (File.Exists(quantizerPath))
+        {
+            using FileStream qfs = new(quantizerPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            quantizer = QuantizerSerializer.Read(qfs);
+        }
+
         MemoryMappedFile mmf;
         MemoryMappedViewAccessor accessor;
         if (expected == 0)
         {
             // 空 Segment：跳过 mmap
-            return new SegmentReader<TKey>(header, keys, null!, null!, 0, encodedPayloads);
+            return new SegmentReader<TKey>(header, keys, null!, null!, 0, encodedPayloads, quantizer);
         }
 
         mmf = MemoryMappedFile.CreateFromFile(
@@ -132,7 +148,7 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
             access: MemoryMappedFileAccess.Read);
         accessor = mmf.CreateViewAccessor(0, expected, MemoryMappedFileAccess.Read);
 
-        return new SegmentReader<TKey>(header, keys, mmf, accessor, expected, encodedPayloads);
+        return new SegmentReader<TKey>(header, keys, mmf, accessor, expected, encodedPayloads, quantizer);
     }
 
     /// <summary>读取指定行的向量到目标 span（长度须等于 Dimensions）。</summary>

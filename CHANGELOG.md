@@ -8,6 +8,21 @@
 
 ### Added
 
+- PR #M14.1：M14.1 — `IBatchScorer` 抽象 + 默认 `CpuTensorPrimitivesScorer` + `FlatIndex<TKey>` 注入点
+  - `src/DotVector.Core/Compute/IBatchScorer.cs`（新增）：声明 `Score(query, dataset, scores, metric)` 批量打分接口；约定无锁、与 `Distance.Compute` 同语义、热路径零分配；维度由 `dataset.Length / scores.Length` 隐式推导
+  - `src/DotVector.Core/Compute/CpuTensorPrimitivesScorer.cs`（新增）：默认 CPU 实现，单例 `Instance`；逐行委托 `Distance.Compute`，与既有路径 bit-identical；显式拒绝 `Metric.Hamming`，并校验 `dataset.Length == scores.Length × query.Length`
+  - `src/DotVector.Core/Index/Flat/FlatIndex.cs`：构造函数末尾追加可选参数 `IBatchScorer? scorer = null`（向后兼容）；`Search` 在注入 scorer 时通过 `ArrayPool<float>.Shared` 租借一次性批量打分缓冲，否则保留既有逐行 SIMD 路径，零额外分配；`SearchSubset` 暂保持逐行路径（稀疏行收集后续 PR 处理）
+  - `tests/DotVector.Core.Tests/Compute/BatchScorerTests.cs`（新增 6 个测试）：`CpuTensorPrimitivesScorer` 与 `Distance.Compute` 在 L2/Cosine/InnerProduct/DotProduct 下完全相等；Hamming 抛出 `NotSupportedException`；dataset 长度错配抛 `ArgumentException`；空数据集 no-op；`FlatIndex` 注入 scorer 与默认路径返回的 Top-K 键序与分数完全一致
+  - 为 M14.2 ONNX Runtime scorer（独立可选包 `src/DotVector.Acceleration.Onnx/`）预留接口
+
+- PR #M13.5b：M13.5b — `quantizer.bin` 接入 `SegmentWriter`/`SegmentReader` + `IvfPqIndex` 复用 `IQuantizedScorer`
+  - `src/DotVector.Core/Storage/SegmentWriter.cs`：新增 `Write<TKey>(..., IReadOnlyList<byte[]?>? payloads, IVectorQuantizer? quantizer)` 6 参重载；`quantizer is not null` 时在原子 `Directory.Move` 之前通过 `QuantizerSerializer.Write` 落盘 `quantizer.bin`，并 `FlushToDisk(true)`；为 `null` 时不生成该文件，旧 5 参重载与既有调用点签名保持不变（向后兼容）
+  - `src/DotVector.Core/Storage/SegmentReader.cs`：新增 public 属性 `IVectorQuantizer? Quantizer { get; }`；`Open` 在校验 `seg.hdr` / `keys.bin` / `vectors.bin` 后增加可选分支：若 `quantizer.bin` 存在则 `QuantizerSerializer.Read` 反序列化注入构造，不存在则保持 `null`（按文件存在性向后兼容）；空 Segment 与有数据 Segment 路径均传递 `quantizer`
+  - `src/DotVector.Core/Index/Ivf/IvfPqIndex.cs`：内部新增 `ProductQuantizer? _pq`，训练完成 PQ 码本后用新 internal `ProductQuantizer(PqCodebook)` 包装零拷贝复用；`SearchCore` 从直接调用 `PqCodebook.PrecomputeAdcLutL2` + `ScoreAdcL2Sq` 切换为 `IVectorQuantizer.BuildScorer(residual)` → `IQuantizedScorer.Score(code)` 抽象路径；写回阶段引入 `Dictionary<int, IQuantizedScorer>` 缓存避免对同一 list 重复构建打分器；`residual` 改用堆分配 `new float[_dimensions]` 以适配大维度
+  - `tests/DotVector.Core.Tests/Persistence/SegmentQuantizerRoundTripTests.cs`（新增 2 个测试）：未传 quantizer 时不生成 `quantizer.bin` 且重读 `Quantizer == null`；传入已训练 SQ8 后 `quantizer.bin` 落盘、重读 `Kind/Dimensions/CodeBytes/IsTrained` 一致、`Encode` 字节序列与 `BuildScorer.Score` 在 round-trip 前后完全一致
+  - **未升级 `FileHeader.Version`**（覆盖 AGENTS.md 默认规则，由用户决策）：`quantizer.bin` 是纯增量可选 sidecar，老 Segment 无该文件读端走 `Quantizer = null` 兜底；`SegmentHeader` / `vectors.bin` / `keys.bin` / `payload.bin` 二进制布局零变更，前后双向兼容
+  - 全量回归：341 个测试通过（baseline 339 + 新增 2）
+
 - PR #M13.5a：M13.5a — `IVectorQuantizer.BuildScorer` 全量化器统一 + `QuantizerSerializer` 持久化 + `QuantizedFlatIndex<TKey>` 量化线性扫描索引
   - `src/DotVector.Core/Compression/IVectorQuantizer.cs`：在接口层声明 `BuildScorer(ReadOnlySpan<float> query) → IQuantizedScorer`，统一 SQ8/PQ/OPQ/RQ 四种量化器的查询打分入口
   - `src/DotVector.Core/Compression/ScalarQuantizer8.cs`：新增 internal `Sq8DecompressScorer`（重建 + L2² via `TensorPrimitives.SumOfSquares`），并新增 internal `Min/Scale` 只读视图与 `LoadState(min, scale)` 重算 `_invScale`，供反序列化无暴露公共 setter 重建

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using DotVector.Compression;
 using DotVector.Exceptions;
 using DotVector.Format;
 using DotVector.IO;
@@ -52,6 +53,26 @@ internal static class SegmentWriter
         IReadOnlyList<TKey> keys,
         ReadOnlySpan<float> vectors,
         IReadOnlyList<byte[]?>? payloads) where TKey : notnull
+        => Write(segmentDirectory, header, keys, vectors, payloads, quantizer: null);
+
+    /// <summary>
+    /// 将一组向量、键、可选 payload 与可选量化器写入指定 Segment 目录（原子，M13.5b）。
+    /// </summary>
+    /// <typeparam name="TKey">键类型。</typeparam>
+    /// <param name="segmentDirectory">目标 Segment 目录路径。</param>
+    /// <param name="header">Segment 头部信息。</param>
+    /// <param name="keys">键序列。</param>
+    /// <param name="vectors">行优先 float32 向量数据。</param>
+    /// <param name="payloads">每行已编码 payload，可空。</param>
+    /// <param name="quantizer">已训练的量化器；为 <see langword="null"/> 时不写出 <c>quantizer.bin</c>，
+    /// 读端凭文件存在与否区分新旧 Segment（向后兼容，未升级 FileHeader.Version）。</param>
+    public static void Write<TKey>(
+        string segmentDirectory,
+        SegmentHeader header,
+        IReadOnlyList<TKey> keys,
+        ReadOnlySpan<float> vectors,
+        IReadOnlyList<byte[]?>? payloads,
+        IVectorQuantizer? quantizer) where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(segmentDirectory);
         ArgumentNullException.ThrowIfNull(keys);
@@ -155,6 +176,15 @@ internal static class SegmentWriter
             using FileStream fs = new(Path.Combine(tmpDir, "payload.bin"),
                 FileMode.Create, FileAccess.Write, FileShare.None);
             fs.Write(payloadBuf, 0, pw.Written);
+            fs.Flush(flushToDisk: true);
+        }
+
+        // quantizer.bin（M13.5b，可选）
+        if (quantizer is not null)
+        {
+            using FileStream fs = new(Path.Combine(tmpDir, "quantizer.bin"),
+                FileMode.Create, FileAccess.Write, FileShare.None);
+            QuantizerSerializer.Write(quantizer, fs);
             fs.Flush(flushToDisk: true);
         }
 

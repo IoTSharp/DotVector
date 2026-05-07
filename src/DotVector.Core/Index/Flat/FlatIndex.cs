@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
 using DotVector.Compute;
 using DotVector.Core;
@@ -34,6 +35,7 @@ public sealed class FlatIndex<TKey> : IIndex<TKey>, IDisposable
 {
     private readonly int _dimensions;
     private readonly Metric _metric;
+    private readonly IBatchScorer? _scorer;
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
     // 行优先连续存储；长度始终是 dimensions 的整数倍。
@@ -54,11 +56,14 @@ public sealed class FlatIndex<TKey> : IIndex<TKey>, IDisposable
     /// <param name="metric">距离度量类型。</param>
     /// <param name="initialCapacity">初始向量条数预留容量，默认 0。</param>
     /// <param name="keyComparer">键比较器（可选）。</param>
+    /// <param name="scorer">可选的批量打分内核（M14）；为 <see langword="null"/> 时走默认 CPU 逐行路径，
+    /// 设置为 <see cref="CpuTensorPrimitivesScorer.Instance"/> 或自定义加速实现可包装入批量调用。</param>
     public FlatIndex(
         int dimensions,
         Metric metric,
         int initialCapacity = 0,
-        IEqualityComparer<TKey>? keyComparer = null)
+        IEqualityComparer<TKey>? keyComparer = null,
+        IBatchScorer? scorer = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimensions);
         ArgumentOutOfRangeException.ThrowIfNegative(initialCapacity);
@@ -70,6 +75,7 @@ public sealed class FlatIndex<TKey> : IIndex<TKey>, IDisposable
 
         _dimensions = dimensions;
         _metric = metric;
+        _scorer = scorer;
         _vectors = new List<float>(checked(initialCapacity * dimensions));
         _keys = new List<TKey>(initialCapacity);
         _keyToRow = new Dictionary<TKey, int>(initialCapacity, keyComparer);
@@ -240,39 +246,58 @@ public sealed class FlatIndex<TKey> : IIndex<TKey>, IDisposable
             int effectiveK = Math.Min(topK, n);
             bool largerBetter = _metric.IsLargerBetter();
 
-            // 使用 BCL 最小堆。要保留 K 个"最佳"候选，应让"最差"候选位于堆顶，
-            // 这样新候选优于堆顶时即可整体替换。
-            //  - smallerBetter（L2/Cosine/Hamming）：最差 = 分数最大 → priority = -score（最小堆顶 = max score）
-            //  - largerBetter （InnerProduct/DotProduct）：最差 = 分数最小 → priority = +score（最小堆顶 = min score）
-            var heap = new PriorityQueue<int, float>(effectiveK);
-
-            for (int row = 0; row < n; row++)
+            // 当注入了自定义 IBatchScorer（M14）时，先一次性批量打分；否则走逐行 SIMD 路径以避免分配。
+            float[]? rentedScores = null;
+            ReadOnlySpan<float> batchedScores = default;
+            if (_scorer is not null)
             {
-                ReadOnlySpan<float> v = storage.Slice(row * _dimensions, _dimensions);
-                float score = ComputeScore(query, v);
-                float priority = largerBetter ? score : -score;
-
-                if (heap.Count < effectiveK)
-                {
-                    heap.Enqueue(row, priority);
-                }
-                else
-                {
-                    // EnqueueDequeue：先比较堆顶；若新值优于堆顶（priority 更小），则替换。
-                    heap.EnqueueDequeue(row, priority);
-                }
+                rentedScores = ArrayPool<float>.Shared.Rent(n);
+                _scorer.Score(query, storage.Slice(0, n * _dimensions), rentedScores.AsSpan(0, n), _metric);
+                batchedScores = rentedScores.AsSpan(0, n);
             }
 
-            // 从堆中取出，按"最佳到最差"顺序写入 results（堆当前从最差到最佳出栈，需反序）。
-            int written = heap.Count;
-            for (int i = written - 1; i >= 0; i--)
+            try
             {
-                int row = heap.Dequeue();
-                ReadOnlySpan<float> v = storage.Slice(row * _dimensions, _dimensions);
-                float score = ComputeScore(query, v);
-                results[i] = (_keys[row], score);
+                // 使用 BCL 最小堆。要保留 K 个"最佳"候选，应让"最差"候选位于堆顶，
+                // 这样新候选优于堆顶时即可整体替换。
+                //  - smallerBetter（L2/Cosine/Hamming）：最差 = 分数最大 → priority = -score（最小堆顶 = max score）
+                //  - largerBetter （InnerProduct/DotProduct）：最差 = 分数最小 → priority = +score（最小堆顶 = min score）
+                var heap = new PriorityQueue<(int Row, float Score), float>(effectiveK);
+
+                for (int row = 0; row < n; row++)
+                {
+                    float score = rentedScores is null
+                        ? ComputeScore(query, storage.Slice(row * _dimensions, _dimensions))
+                        : batchedScores[row];
+                    float priority = largerBetter ? score : -score;
+
+                    if (heap.Count < effectiveK)
+                    {
+                        heap.Enqueue((row, score), priority);
+                    }
+                    else
+                    {
+                        // EnqueueDequeue：先比较堆顶；若新值优于堆顶（priority 更小），则替换。
+                        heap.EnqueueDequeue((row, score), priority);
+                    }
+                }
+
+                // 从堆中取出，按"最佳到最差"顺序写入 results（堆当前从最差到最佳出栈，需反序）。
+                int written = heap.Count;
+                for (int i = written - 1; i >= 0; i--)
+                {
+                    var (row, score) = heap.Dequeue();
+                    results[i] = (_keys[row], score);
+                }
+                return written;
             }
-            return written;
+            finally
+            {
+                if (rentedScores is not null)
+                {
+                    ArrayPool<float>.Shared.Return(rentedScores);
+                }
+            }
         }
         finally
         {

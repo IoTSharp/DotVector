@@ -21,6 +21,9 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M9 | ✅ | gRPC Server + Native AOT + Docker |
 | M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
 | M11 | ✅ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
+| M12 | ⏳ | DiskANN（Vamana 图）+ 磁盘驻留索引 |
+| M13 | ⏳ | 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象 |
+| M14 | ⏳ | 硬件加速：ONNX-Runtime / GPU 距离内核（可选包） |
 
 ---
 
@@ -421,13 +424,146 @@ my-database.dvec/
 
 ---
 
-## ⏳ 预留 Milestone
+## ⏳ M12 — DiskANN（Vamana 图）+ 磁盘驻留索引
+
+**目标**：实现 microsoft/DiskANN 的 **Vamana** 图算法，让图本身存盘 + mmap 按需访问，使 1 亿条 384 维向量在 16 GB 内存机器上仍能 P99 < 50 ms。与 M5/M10 衔接：复用现有 `.dvec/segments/seg-{seq}/` 目录与 mmap 读路径，新增 `vamana.bin`。
+
+**实现内容**（新增 `src/DotVector.Core/Index/DiskAnn/`）：
+- `VamanaIndex<TKey>` — 实现 `IIndex<TKey>`，纯 BCL + `TensorPrimitives`
+- `VamanaBuilder` — 离线/批量构建：随机初始化 → RobustPrune → α 松弛 → 双向边修补；K-Means 选 medoid 作为入口
+- `VamanaNodeHeader` — `[StructLayout(Sequential, Pack=1)] unmanaged struct`，固定字段 + 紧随其后的邻居 ID（uint32）
+- `VamanaFileFormat` — `vamana.bin` 布局：Header (Magic="DVAN" + Version + R + Alpha + EntryPointId + NodeCount) + per-node `[VamanaNodeHeader, uint[R] neighbors, float[D] vector?]`
+- `DiskVamanaReader` — mmap 只读访问；按节点 id 偏移寻址；支持 "向量 inline / 向量分离" 两种布局
+- `BeamSearch` — L 大小可调的 best-first；`PriorityQueue<int,float>` + visited bitset（`BitArray`）
+- `IndexKind.Vamana` — 新增枚举值 + `VectorDatabase.CreateCollection` 重载
+- 与 M11 B-tree pre-filter 集成（候选集投影到 BeamSearch start set）
+- 与 M13 `IDistanceKernel<byte>` 互通，支持 "图驻盘 + 距离量化" 组合
+
+**算法参数**（公开为 `VamanaOptions`）：`R` / `L` / `Alpha` / `LSearch` / `BuildBatchSize` / `InlineVectorsInGraph`
+
+**持久化**：升级 `FileHeader.Version`，新增 magic "DVAN"；`SegmentHeader` 增加 `IndexKind` 字段（保留位）。
+
+**参考**：
+- 论文：Subramanya et al., 2019, *DiskANN: Fast Accurate Billion-point Nearest Neighbor Search on a Single Node*
+- microsoft/DiskANN（C++）：https://github.com/microsoft/DiskANN（仅作算法参考，不做 P/Invoke）
+- 现有 `HnswIndex` 作为图索引的工程模板
+
+**验收标准**：
+- [ ] `VamanaNodeHeader` / `VamanaFileHeader` round-trip 测试通过（little-endian、`MemoryMarshal.Read/Write`）
+- [ ] 1000×64 随机数据 × 4 距离 × 4 seed Recall@10 ≥ 0.92（与 HNSW 同基准用例）
+- [ ] 100k 条 128 维数据：构建时间 < 60 s（单核 CI），查询 P99 < 5 ms（mmap 冷启动后）
+- [ ] mmap 模式下进程 RSS < 数据集大小的 1.5x（确认确实是按需读盘）
+- [ ] 与 `FilterIntrospection` pre-filter 路径联动：候选集 N < 全集时仍能命中
+- [ ] AOT 编译路径无新增 IL trim 警告
+- [ ] `DotVector.Core` 仍零第三方运行时依赖
+
+**PR 切分**：
+| PR | 内容 |
+|---|---|
+| #M12.1 | `VamanaNodeHeader` + `VamanaFileHeader` unmanaged struct + round-trip 测试 |
+| #M12.2 | `VamanaBuilder`（内存版）+ `BeamSearch` + Recall 测试（与 Flat 比 ≥ 0.92）|
+| #M12.3 | `DiskVamanaReader`（mmap 路径）+ `IndexKind.Vamana` 端到端持久化 round-trip |
+| #M12.4 | 与 M11 B-tree pre-filter 集成（候选集投影到 BeamSearch start set）|
+
+---
+
+## ⏳ M13 — 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象
+
+**目标**：把 "量化" 从 IVF 内部细节升格为**一等抽象**（`IVectorQuantizer`），让 Flat / HNSW / Vamana 都能选用 SQ / PQ / OPQ / RQ；同时把 PQ 提升到生产级（OPQ 旋转、ADC 距离表、SIMD 化）。
+
+**实现内容**（沿用 `src/DotVector.Core/Compression/`）：
+- `IVectorQuantizer` — 统一接口：`Train(samples)` / `Encode(vector)→bytes` / `Decode(bytes)→vector`（仅调试用）/ `BuildDistanceTable(query)→IDistanceKernel<byte>`
+- `ScalarQuantizer8` (SQ8) — per-dim min/max → uint8；`Encode/Decode` 全部走 `TensorPrimitives` 通道；零内存分配热路径
+- `ProductQuantizer` — M4 `PqCodebook` 重构升级，分离训练与编码；ADC 距离表 SIMD 加速（`Vector256<float>` gather）
+- `OptimizedProductQuantizer` (OPQ) — 学习正交旋转矩阵 R（迭代：固定 R 训 PQ；固定 PQ 解 Procrustes 求 R）；`Encode` = `R·x` 后走 PQ；纯托管 SVD（Householder QR + Jacobi）
+- `ResidualQuantizer` (RQ) — 多级残差码本（M 级，每级 K 中心）；适合 8–16 字节预算下的高召回
+- `QuantizedDistanceKernel` — 实现 `IDistanceKernel<byte>`，封装 "查询预计算 LUT + 编码扫描"；FlatIndex 与 Vamana 共用
+
+**索引侧适配**：
+- `FlatIndex<TKey>` 新增 `WithQuantizer(IVectorQuantizer)` 工厂；存储 `byte[]` 而非 `float[]`
+- `IvfPqIndex<TKey>` 重构：内部改用 `ProductQuantizer`，把 OPQ/RQ 作为 drop-in 替换（API 不变，新增 `IvfQuantizerKind`）
+- `HnswIndex<TKey>` / `VamanaIndex<TKey>`：可选量化模式下，图边遍历仍用全精度，叶子距离用 ADC 表
+
+**持久化**：
+- 每个量化器序列化为 `seg-{seq}/quantizer.bin`，自描述前缀 1 字节 `QuantizerKind`（None/SQ8/PQ/OPQ/RQ）
+- `SegmentHeader` 增加 `QuantizerKind` 字段（保留位足够），升级 `FileHeader.Version`
+- 码本 / 旋转矩阵 R 全部走 `MemoryMarshal.Cast` + little-endian
+
+**参考**：
+- Jégou et al., *Product Quantization for Nearest Neighbor Search*
+- Ge et al., *Optimized Product Quantization* (CVPR 2013)
+- Chen et al., *Quantization based Fast Inner Product Search* (RQ)
+- FAISS `IndexPQ` / `IndexOPQ` / `IndexResidualQuantizer`
+
+**验收标准**：
+- [ ] **SQ8**：相对 Flat 内存压缩 4×，Recall@10 ≥ 0.97（SIFT-1M 子集）
+- [ ] **PQ**（M=8, NBits=8）：内存压缩 ≥ 16×，Recall@10 ≥ 0.65（取代 M4 验收的 0.50 基线）
+- [ ] **OPQ**：在同 M/NBits 下 Recall@10 比 PQ 提升 ≥ 5pp
+- [ ] **RQ**（2 级 8-bit）：Recall@10 ≥ 0.80
+- [ ] ADC 距离计算吞吐 ≥ 1×10⁹ pair/s（128 维，单核，`Vector256<float>`）
+- [ ] `quantizer.bin` round-trip + 跨平台（little-endian）测试通过
+- [ ] `IvfPqIndex` 切换到新 `IVectorQuantizer` 后 M4 既有测试全部仍绿
+- [ ] 全部 SIMD vs scalar 一致性差 < 1e-4（量化数值容忍度）
+- [ ] `DotVector.Core` 仍零第三方运行时依赖
+
+**PR 切分**：
+| PR | 内容 |
+|---|---|
+| #M13.1 | `IVectorQuantizer` 抽象 + `ScalarQuantizer8` + 单测（重建误差 / round-trip）|
+| #M13.2 | `ProductQuantizer` 重构（从 `PqCodebook` 抽离）+ ADC `QuantizedDistanceKernel` + SIMD 加速 |
+| #M13.3 | `OptimizedProductQuantizer`（含纯托管 SVD 实现 + 收敛单测）|
+| #M13.4 | `ResidualQuantizer` + 召回率回归 |
+| #M13.5 | `IvfPqIndex` / `FlatIndex` 接入新抽象，`quantizer.bin` 持久化 + 升级 `FileHeader.Version` |
+
+---
+
+## ⏳ M14 — 硬件加速：ONNX-Runtime / GPU 距离内核（可选包）
+
+**目标**：在**不破坏 `DotVector.Core` 零第三方依赖约束**的前提下，提供可选 GPU / 加速器距离内核。硬件加速**不进** `DotVector.Core`，单独成 NuGet 包，通过 `IBatchScorer` 接口注入。
+
+**架构**：
+```
+DotVector.Core               ← 仍零第三方依赖；定义 IBatchScorer 接口 + 默认 CPU 实现
+DotVector.Acceleration.Onnx  ← 新增包，依赖 Microsoft.ML.OnnxRuntime
+DotVector.Acceleration.Cuda  ← 可选包（仅 linux-x64 / win-x64），依赖 Microsoft.ML.OnnxRuntime.Gpu
+```
+
+**实现内容**：
+- `IBatchScorer`（Core）— 新接口：`Score(ReadOnlySpan<float> query, ReadOnlySpan<float> dataset, Span<float> scores, Metric)`；批量打分而非单点距离
+- `CpuTensorPrimitivesScorer`（Core）— 默认实现，包装现有 `Distance.cs`
+- `OnnxRuntimeScorer`（Acceleration.Onnx）— 把 "距离矩阵" 建为最小 ONNX 图（MatMul + reduction）；首次调用时 warm-up；支持 CPU / DirectML / CUDA EP
+- `OnnxAccelerationOptions` — EP 选择、batch size、prefer-fp16 等
+- `FlatIndex<TKey>` 注入点 — 接受 `IBatchScorer`，默认 CPU；用户可在构造时替换
+
+**AOT 兼容性边界**：`Acceleration.Onnx` 不要求 `IsAotCompatible=true`（ONNX 反射较多）；Core 路径仍 AOT-clean。
+
+**参考**：
+- ONNX Runtime EP 文档：DirectML / CUDA / TensorRT / CoreML
+- pgvector GPU fork、Milvus Knowhere GPU 索引设计
+
+**验收标准**：
+- [ ] `DotVector.Core` 项目文件未新增任何第三方包引用（用 `dotnet list package` 断言）
+- [ ] `IBatchScorer` 接口 round-trip：CPU scorer 与 `Distance.cs` 计算结果在标量路径下 bit-identical
+- [ ] `OnnxRuntimeScorer` 在 CPU EP 下与 CPU scorer 数值差 < 1e-4，召回完全一致
+- [ ] DirectML / CUDA EP（按平台）批量打分吞吐相对 CPU ≥ 3×（dim=384, batch=10000）
+- [ ] `Acceleration.Onnx` 包独立可发布；`DotVector.Cli` 不强制依赖（按 `--accel onnx` 显式启用）
+- [ ] 文档：`docs/acceleration.md` 描述 EP 选择决策树
+- [ ] AOT trim：Core 路径仍 0 警告；Acceleration 包允许 IL2026 但需在 csproj 中 `<IsAotCompatible>false</IsAotCompatible>` 显式标注
+
+**PR 切分**：
+| PR | 内容 |
+|---|---|
+| #M14.1 | `IBatchScorer` 接口 + `CpuTensorPrimitivesScorer` + `FlatIndex` 注入点；保持现有 API 兼容（默认参数走 CPU）|
+| #M14.2 | 新建 `src/DotVector.Acceleration.Onnx/` + `OnnxRuntimeScorer`（CPU EP）+ 端到端单测：与 CPU scorer 数值差 < 1e-4 |
+| #M14.3 | DirectML EP 适配（Windows）+ 性能基准（vs CPU 至少 3×）|
+| #M14.4（可选） | CUDA EP 适配 + Linux CI 矩阵 |
+
+---
+
+## ⏳ 后续候选 Milestone（未排期）
 
 | Milestone | 内容 | 参考 |
 |-----------|------|------|
-| M12 | DiskANN（Vamana 图）— 磁盘索引，适合内存放不下的大规模数据集 | microsoft/DiskANN |
-| M13 | 量化：SQ8 / PQ / OPQ / 残差量化 | FAISS, Milvus |
-| M14 | GPU / ONNX-Runtime 加速（可选，若平台支持） | ONNX Runtime ExecutionProvider |
 | M15 | 分布式分片 — 一致性哈希路由，多节点扩展 | Milvus 分布式架构 |
 
 ---

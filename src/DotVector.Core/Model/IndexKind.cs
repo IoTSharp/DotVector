@@ -28,4 +28,10 @@ public enum IndexKind
     /// 显著降低内存占用，适合超大规模数据（M4 引入）。
     /// </summary>
     IvfPq = 3,
+
+    /// <summary>
+    /// DiskANN / Vamana 单层图索引（<see cref="DotVector.Index.DiskAnn.VamanaIndex{TKey}"/>），
+    /// 适合超大规模磁盘驻留场景，构建后图结构稳定、邻居数量受限（M12 引入）。
+    /// </summary>
+    Vamana = 4,
 }

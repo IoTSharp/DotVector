@@ -8,6 +8,21 @@
 
 ### Added
 
+- PR #M12.1：M12.1 — Vamana / DiskANN 索引格式头与单元测试
+  - `src/DotVector.Core/Model/IndexKind.cs`：新增 `Vamana = 4` 枚举值
+  - `src/DotVector.Core/Format/VamanaNodeHeader.cs`（新增）：8 字节 `[StructLayout(Sequential, Pack=1)]` 节点头（`NodeId` + `NeighborCount` + `Tombstone` + `Reserved0`），后跟 `uint[R] neighbors` 邻居数组与可选的 `float[D]` 内联向量
+  - `src/DotVector.Core/Format/VamanaFileHeader.cs`（新增）：48 字节文件头（`Magic8` "DVAN\0\0\0\0" + `Version=1` + `MaxDegree` + `Alpha` + `EntryPointId` + `NodeCount` + `Dimensions` + `MetricKind` + `InlineVectors` + 14 字节保留区，`[InlineArray(14)] Reserved14`）；`VamanaFileHeaderConstants.MagicAscii` 提供 4 字节 ASCII "DVAN"
+  - `tests/DotVector.Core.Tests/Format/VamanaNodeHeaderTests.cs`（新增）：`SizeOf` + round-trip
+  - `tests/DotVector.Core.Tests/Format/VamanaFileHeaderTests.cs`（新增）：`SizeOf` + round-trip + Magic ASCII 校验
+
+- PR #M12.2：M12.2 — 内存版 VamanaIndex（RobustPrune + BeamSearch）
+  - `src/DotVector.Core/Index/DiskAnn/VamanaOptions.cs`（新增）：`MaxDegree=32`、`SearchListSize=75`、`Alpha=1.2`、`BeamWidth=4`、可选 `Seed`，并提供 `Default` 与 `Validate()`
+  - `src/DotVector.Core/Index/DiskAnn/VamanaIndex.cs`（新增）：单层 Vamana 图索引，`IIndex<TKey>` 实现，纯 safe 代码（`List<float>` + `CollectionsMarshal.AsSpan` + `PriorityQueue`）；`Add` 走 BeamSearch 收集候选 → `RobustPrune(focal, V, alpha, R)` → 双向边并对邻居超出 `R` 时再次 RobustPrune；`Remove` 采用 tombstone-only；`Search` 用 `L=max(SearchListSize, topK)` 的 BeamSearch；`Hamming` 度量显式拒绝
+  - `src/DotVector.Core/Api/Collection.cs` / `Api/VectorDatabase.cs`：新增 `CreateCollection<TKey>(name, dimensions, metric, VamanaOptions options)` 重载，`IndexKind.Vamana` 自动构造 `VamanaIndex<TKey>`
+  - `tests/DotVector.Core.Tests/Index/DiskAnn/VamanaIndexTests.cs`（新增 11 个测试）：构造校验、维度/重复键校验、空索引、精确命中、四种度量结果序列、`Remove` tombstone、并发只读
+  - `tests/DotVector.Accuracy.Tests/VamanaRecallTests.cs`（新增 4 个 Theory 用例）：在 1000×64 维随机数据集上对 L2 / Cosine / DotProduct / InnerProduct 验证 Recall@10 ≥ 0.92
+  - 全量回归：262 个测试通过（含 19 个 Vamana 相关用例）
+
 - PR #M9：M9 — gRPC 服务端 / 客户端 / CLI 远程命令 / Native AOT 发布 / Docker 化
   - `src/DotVector/Server/DotVectorServer.cs`：`Build(dataDirectory, port, args, loopbackOnly, httpsCertificate)` 构建 Kestrel HTTP/2 宿主，端到端封装 `VectorDatabase` + `VectorServiceImpl` + `LocalDotVectorClient`；默认 h2c，可传 `X509Certificate2` 启用 HTTPS（h2 over TLS，ALPN）。
   - `src/DotVector/Grpc/VectorServiceImpl.cs` + `protos/dotvector.proto`：定义并实现 `VectorService`（Ping/CreateCollection/DeleteCollection/ListCollections/Upsert/Delete/Search/Get/Scroll），与 `IDotVectorClient` 一一对应。

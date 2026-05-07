@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using DotVector.Catalog;
 using DotVector.Exceptions;
 using DotVector.Format;
+using DotVector.Index.DiskAnn;
 using DotVector.Index.Flat;
 using DotVector.Index.Hnsw;
 using DotVector.Index.Ivf;
@@ -305,6 +306,25 @@ public sealed class VectorDatabase : IDisposable
 
         var collection = new Collection<TKey>(name, dimensions, metric, IndexKind.IvfPq, hnswOptions: null, ivfPqOptions: options);
         RegisterAndAttach(name, dimensions, metric, IndexKind.IvfPq, collection);
+        return collection;
+    }
+
+    /// <summary>创建使用 Vamana / DiskANN 索引的集合。</summary>
+    /// <typeparam name="TKey">记录主键类型。</typeparam>
+    public Collection<TKey> CreateCollection<TKey>(
+        string name,
+        int dimensions,
+        Metric metric,
+        VamanaOptions options)
+        where TKey : notnull
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimensions);
+        ArgumentNullException.ThrowIfNull(options);
+        ThrowIfDisposed();
+
+        var collection = new Collection<TKey>(name, dimensions, metric, IndexKind.Vamana, hnswOptions: null, vamanaOptions: options);
+        RegisterAndAttach(name, dimensions, metric, IndexKind.Vamana, collection);
         return collection;
     }
 

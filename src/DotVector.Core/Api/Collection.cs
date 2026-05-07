@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using DotVector.Core;
+using DotVector.Index.DiskAnn;
 using DotVector.Index.Flat;
 using DotVector.Index.Hnsw;
 using DotVector.Index.Ivf;
@@ -40,6 +41,7 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
     /// <param name="hnswOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.Hnsw"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
     /// <param name="ivfOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.IvfFlat"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
     /// <param name="ivfPqOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.IvfPq"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
+    /// <param name="vamanaOptions">当 <paramref name="indexKind"/> 为 <see cref="IndexKind.Vamana"/> 时使用的参数；为 <see langword="null"/> 时使用默认值。</param>
     internal Collection(
         string name,
         int dimensions,
@@ -47,7 +49,8 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         IndexKind indexKind = IndexKind.Flat,
         HnswOptions? hnswOptions = null,
         IvfOptions? ivfOptions = null,
-        IvfPqOptions? ivfPqOptions = null)
+        IvfPqOptions? ivfPqOptions = null,
+        VamanaOptions? vamanaOptions = null)
     {
         Name = name;
         Dimensions = dimensions;
@@ -59,6 +62,7 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
             IndexKind.Hnsw => new HnswIndex<TKey>(dimensions, metric, hnswOptions),
             IndexKind.IvfFlat => new IvfFlatIndex<TKey>(dimensions, metric, ivfOptions),
             IndexKind.IvfPq => new IvfPqIndex<TKey>(dimensions, metric, ivfPqOptions),
+            IndexKind.Vamana => new VamanaIndex<TKey>(dimensions, metric, vamanaOptions),
             _ => throw new ArgumentOutOfRangeException(nameof(indexKind), indexKind, "未支持的索引类型。"),
         };
     }

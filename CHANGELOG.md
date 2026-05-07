@@ -8,6 +8,14 @@
 
 ### Added
 
+- PR #M13.2：M13.2 — `ProductQuantizer` 实现 `IVectorQuantizer` + `IQuantizedScorer` ADC 打分抽象
+  - `src/DotVector.Core/Compression/IQuantizedScorer.cs`（新增）：量化打分内核统一接口，遵循 L2 平方距离语义；`Score(ReadOnlySpan<byte>)` 单条编码评分，由 `IVectorQuantizer` 的 `BuildScorer(query)` 创建（持有预计算 LUT，按查询独立实例）
+  - `src/DotVector.Core/Compression/ProductQuantizer.cs`（新增）：包装现有 `PqCodebook`，实现 `IVectorQuantizer` 契约（`Kind=Pq`，`CodeBytes=M`），暴露 `Train` / `Encode` / `Decode` / `BuildScorer`；`Decode` 重建为各子空间被选中心的拼接；内部 `PqAdcScorer` 持有 `M × 256` LUT，4 路展开累加，零额外分配；构造参数支持 `maxIterations` 与 `seed`，便于确定性测试
+  - `tests/DotVector.Core.Tests/Compression/ProductQuantizerTests.cs`（新增 11 个测试）：dim 不能整除 m / Encode|Decode|BuildScorer 未训练抛 `InvalidOperationException` / Train 后 CodeBytes 与 IsTrained 正确 / Decode 拼接重建 / **ADC 与标量参考一致性 |Δ| < 1e-4** / Score 缓冲过小 / Encode|Decode 维度不匹配 / Kind=Pq
+  - 兼容性：`PqCodebook` 与 `IvfPqIndex` 维持原状未改动；M5 持久化将在 M13.5 引入 `quantizer.bin`
+  - 全量回归：299 个测试通过（baseline 288 + PQ 新增 11）
+  - 后续 PR：M13.3（OPQ — 旋转 + PQ 联合训练）
+
 - PR #M13.1：M13.1 — `IVectorQuantizer` 通用量化抽象 + `ScalarQuantizer8`（SQ8）实现
   - `src/DotVector.Core/Compression/QuantizerKind.cs`（新增）：枚举 `None=0 / Sq8=1 / Pq=2 / Opq=3 / Rq=4`，固定数值用于 `quantizer.bin` 持久化首字节
   - `src/DotVector.Core/Compression/IVectorQuantizer.cs`（新增）：统一接口，含 `Kind` / `Dimensions` / `CodeBytes` / `IsTrained` / `Train` / `Encode` / `Decode`，约束训练后 Encode/Decode 线程安全

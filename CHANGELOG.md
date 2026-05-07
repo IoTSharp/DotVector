@@ -13,7 +13,25 @@
 
 ### Added
 
-- PR #M7.1：M7.1 — VectorData `GetAsync(key/keys)` + `IncludeVectors` 闭环
+- PR #M7.2：M7.2 — LINQ Filter Expression 翻译 + `GetAsync(filter, top)` 闭环
+  - `src/DotVector.Core/Protocol/ProtocolDtos.cs`：
+    - `VectorSearchRequest.Filter` 由占位 `string?` 升级为强类型 `DotVector.Query.Filter?`
+    - 新增 `VectorScrollRequest`（`Top` + `Filter` + `IncludeVector`），用于无向量的过滤扫描
+  - `src/DotVector.Core/IDotVectorClient.cs`：新增 `ScrollAsync(string collectionName, VectorScrollRequest, CancellationToken)`
+  - `src/DotVector.Data/Internal/LinqFilterTranslator.cs`（新增）：把 `Expression<Func<TRecord,bool>>` 翻译成 `DotVector.Query.Filter`
+    - 支持 `==` / `!=` / `<` / `<=` / `>` / `>=`、`&&` / `||` / `!`、`bool` 成员、`== null` → `Missing`、`!= null` → `Exists`、闭包/捕获常量编译求值
+    - 拒绝对主键 / 向量字段过滤；非 `[VectorStoreData]` 属性显式抛 `NotSupportedException`
+  - `src/DotVector.Data/Internal/DotVectorRecordMapper.cs`：暴露 `KeyPropertyName` / `VectorPropertyName` / `TryGetPayloadFieldName`，供翻译器解析存储字段名（含 `VectorStoreDataAttribute.StorageName`）
+  - `src/DotVector.Data/DotVectorCollection.cs`：
+    - `SearchAsync` 把 `VectorSearchOptions<TRecord>.Filter` 翻译后通过 `VectorSearchRequest.Filter` 透传
+    - 实现 `GetAsync(Expression<Func<TRecord,bool>> filter, int top, FilteredRecordRetrievalOptions<TRecord>?, CancellationToken)`：调用 `IDotVectorClient.ScrollAsync`，按 `IncludeVectors` 透传向量
+  - `tests/DotVector.Tests/InMemoryDotVectorClient.cs`：`SearchAsync` 应用 `Filter.Matches`；新增 `ScrollAsync` 实现
+  - `tests/DotVector.Tests/LinqFilterTests.cs`（新增 10 个测试）：覆盖等值 / 范围 / `&&`/`||`/`!` 组合 / 捕获常量 / `bool` 成员 / `GetAsync(filter)` Top 限制 / `IncludeVectors` 透传 / 主键过滤拒绝
+  - 全部测试通过（DotVector.Tests 38 通过 0 失败）
+
+### Added
+
+
   - `src/DotVector.Core/Protocol/ProtocolDtos.cs`：
     - `VectorSearchRequest` 新增 `bool IncludeVector { get; init; }`
     - `VectorSearchResult` 新增 `float[]? Vector { get; init; }`

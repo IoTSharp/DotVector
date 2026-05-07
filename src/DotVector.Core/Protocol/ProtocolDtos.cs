@@ -1,3 +1,5 @@
+using DotVector.Query;
+
 namespace DotVector.Core.Protocol;
 
 /// <summary>
@@ -102,13 +104,10 @@ public sealed class VectorSearchRequest
     public int TopK { get; }
 
     /// <summary>
-    /// 可选的标量过滤条件（M6 后启用）。
-    /// 格式待定，占位使用字符串表达式。
+    /// 可选的标量过滤条件（M6 后启用，M7.2 启用结构化 <see cref="DotVector.Query.Filter"/>）。
+    /// 服务端在执行 ANN 搜索时会过取候选并应用此 Filter 做 post-filter。
     /// </summary>
-    /// <remarks>
-    /// TODO(M6): 定义结构化过滤 DSL，替换字符串占位。
-    /// </remarks>
-    public string? Filter { get; init; }
+    public Filter? Filter { get; init; }
 
     /// <summary>
     /// 是否在 <see cref="VectorSearchResult.Vector"/> 中回填命中向量（M7.1）。
@@ -189,4 +188,38 @@ public sealed class VectorRecordDto
     /// 可选的 payload（M6 标量字段）。
     /// </summary>
     public IReadOnlyDictionary<string, object>? Payload { get; init; }
+}
+
+/// <summary>
+/// 按结构化 <see cref="Filter"/> 过滤条件检索记录的请求 DTO（M7.2）。
+/// 由 <see cref="IDotVectorClient.ScrollAsync"/> 使用，对应 VectorData
+/// 适配层的 <c>GetAsync(Expression&lt;Func&lt;TRecord,bool&gt;&gt;, top, ...)</c>。
+/// </summary>
+/// <remarks>
+/// 不涉及向量相似度，仅作 payload 字段过滤后按存储顺序返回前 <see cref="Top"/> 条结果。
+/// TODO(M9): 映射到 gRPC Protobuf ScrollRequest 消息。
+/// </remarks>
+public sealed class VectorScrollRequest
+{
+    /// <summary>
+    /// 初始化 <see cref="VectorScrollRequest"/>。
+    /// </summary>
+    /// <param name="filter">必填的结构化过滤条件。</param>
+    /// <param name="top">最多返回的记录数。</param>
+    public VectorScrollRequest(Filter filter, int top)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        Filter = filter;
+        Top = top;
+    }
+
+    /// <summary>过滤条件。</summary>
+    public Filter Filter { get; }
+
+    /// <summary>最多返回的记录数。</summary>
+    public int Top { get; }
+
+    /// <summary>是否在结果中回填向量数据。</summary>
+    public bool IncludeVector { get; init; }
 }

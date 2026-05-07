@@ -89,6 +89,19 @@ public interface IDotVectorClient : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 按结构化 <see cref="DotVector.Query.Filter"/> 过滤条件检索记录（M7.2）。
+    /// 不参与向量相似度，仅返回满足过滤条件的前 <see cref="Protocol.VectorScrollRequest.Top"/> 条记录。
+    /// </summary>
+    /// <param name="collectionName">目标集合名称。</param>
+    /// <param name="request">检索请求（含 Filter / Top / IncludeVector）。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>命中记录列表（顺序由实现定义；通常为存储顺序）。</returns>
+    ValueTask<IReadOnlyList<Protocol.VectorRecordDto>> ScrollAsync(
+        string collectionName,
+        Protocol.VectorScrollRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 检查客户端与服务端的连接是否正常。
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>

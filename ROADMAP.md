@@ -15,7 +15,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M6 | ✅ | 标量过滤（Payload Filter） |
 | M7 | ✅ | `Microsoft.Extensions.VectorData` 适配 |
 | M7.1 | ✅ | VectorData GetAsync(key/keys) + IncludeVectors（M7 延续） |
-| M7.2 | ⏳ | VectorData LINQ Filter Expression 翻译（M7 延续） |
+| M7.2 | ✅ | VectorData LINQ Filter Expression 翻译（M7 延续） |
 | M7.3 | ⏳ | VectorData Dynamic / ListCollectionNames / Definition（M7 延续） |
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
 | M9 | ⏳ | gRPC Server + Native AOT + Docker |
@@ -375,9 +375,11 @@ my-database.dvec/
 
 ---
 
-## ⏳ M7.2 — VectorData LINQ Filter Expression 翻译（M7 延续）
+## ✅ M7.2 — VectorData LINQ Filter Expression 翻译（M7 延续）
 
 **背景**：M7 的 `SearchAsync` 与未来的 `GetAsync(filter)` 都要求把 `Expression<Func<TRecord,bool>>` 翻译为 DotVector 的 sealed Filter AST，才能复用 M11 已落地的 B-tree pre-filter 下推。
+
+**已交付**（详见 CHANGELOG `[Unreleased]` PR #M7.2）：`LinqFilterTranslator`、`VectorScrollRequest`、`IDotVectorClient.ScrollAsync`、`DotVectorCollection.GetAsync(filter, top)`、`SearchAsync` 透传 `VectorSearchOptions.Filter`，配套 10 个 LINQ Filter 单元测试全部通过。
 
 **实现内容**：
 - `DotVector.Data.Filters.LinqFilterTranslator`：`ExpressionVisitor` 翻译器

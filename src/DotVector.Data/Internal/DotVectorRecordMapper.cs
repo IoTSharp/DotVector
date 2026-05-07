@@ -133,6 +133,35 @@ internal sealed class DotVectorRecordMapper<TKey, TRecord>
         return (TKey)v;
     }
 
+    /// <summary>主键属性的 CLR 名称。</summary>
+    public string KeyPropertyName => _keyProperty.Name;
+
+    /// <summary>向量属性的 CLR 名称。</summary>
+    public string VectorPropertyName => _vectorProperty.Name;
+
+    /// <summary>
+    /// 把 <typeparamref name="TRecord"/> 上的某个 <c>[VectorStoreData]</c> 属性 CLR 名称
+    /// 翻译为 payload 中的存储字段名（来自 <see cref="VectorStoreDataAttribute.StorageName"/>，
+    /// 缺省即属性名）。供 LINQ Filter 翻译器使用。
+    /// </summary>
+    /// <param name="propertyName">CLR 属性名。</param>
+    /// <param name="storageName">payload 字段名。</param>
+    /// <returns>找到对应数据属性返回 <see langword="true"/>。</returns>
+    public bool TryGetPayloadFieldName(string propertyName, [NotNullWhen(true)] out string? storageName)
+    {
+        for (int i = 0; i < _dataProperties.Length; i++)
+        {
+            var p = _dataProperties[i];
+            if (string.Equals(p.Name, propertyName, StringComparison.Ordinal))
+            {
+                storageName = p.GetCustomAttribute<VectorStoreDataAttribute>()?.StorageName ?? p.Name;
+                return true;
+            }
+        }
+        storageName = null;
+        return false;
+    }
+
     /// <summary>从记录中读取向量数据并返回为 <c>float[]</c>。</summary>
     public float[] GetVector(TRecord record)
     {

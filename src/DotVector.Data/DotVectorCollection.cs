@@ -18,16 +18,12 @@ namespace DotVector.Data;
 /// <see cref="VectorStoreDataAttribute"/> 标注字段。</typeparam>
 /// <remarks>
 /// <para>
-/// <strong>M7.1 状态</strong>：已支持 <c>GetAsync(key)</c> / <c>GetAsync(keys)</c> 与
-/// <see cref="VectorSearchOptions{TRecord}.IncludeVectors"/> = <c>true</c>。
-/// 当前实现尚未覆盖以下能力，调用相关方法将抛出 <see cref="NotSupportedException"/>：
+/// <strong>M7.2 状态</strong>：已支持 <c>GetAsync(key)</c> / <c>GetAsync(keys)</c>、
+/// <see cref="VectorSearchOptions{TRecord}.IncludeVectors"/> 与
+/// LINQ Filter Expression 翻译（包括 <see cref="VectorSearchOptions{TRecord}.Filter"/>
+/// 与 <c>GetAsync(filter, top, ...)</c>）。
 /// </para>
-/// <list type="bullet">
-///   <item><description>表达式过滤 <see cref="VectorSearchOptions{TRecord}.Filter"/>（M6 已实现底层 Filter，
-///     但 LINQ→Filter 翻译规划在 M7.2 内完成）；</description></item>
-///   <item><description><c>GetAsync(filter)</c> 通过谓词过滤检索（M7.2）。</description></item>
-/// </list>
-/// TODO(M7.2): 补充 LINQ Expression → Filter 翻译。
+/// <para>翻译规则与限制详见 <see cref="Internal.LinqFilterTranslator"/>。</para>
 /// </remarks>
 [RequiresUnreferencedCode("DotVectorCollection 通过反射访问 TRecord 的属性，可能被 trim 移除。")]
 [RequiresDynamicCode("DotVectorCollection 通过反射访问 TRecord 的属性，AOT 下可能不可用。")]
@@ -176,13 +172,23 @@ public sealed class DotVectorCollection<TKey, TRecord> : VectorStoreCollection<T
     }
 
     /// <inheritdoc/>
-    public override IAsyncEnumerable<TRecord> GetAsync(
+    public override async IAsyncEnumerable<TRecord> GetAsync(
         System.Linq.Expressions.Expression<Func<TRecord, bool>> filter,
         int top,
         FilteredRecordRetrievalOptions<TRecord>? options = null,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException(
-            "DotVector M7 尚未实现 GetAsync(filter)。TODO(M7+): 翻译 LINQ Expression 到 DotVector.Filter 后实现。");
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        bool includeVectors = options?.IncludeVectors == true;
+        var translated = LinqFilterTranslator.Translate(filter, _mapper);
+        var req = new VectorScrollRequest(translated, top) { IncludeVector = includeVectors };
+        var dtos = await _client.ScrollAsync(Name, req, cancellationToken).ConfigureAwait(false);
+        foreach (var dto in dtos)
+        {
+            yield return _mapper.CreateRecord(dto.Id, dto.Payload, includeVectors ? dto.Vector : null);
+        }
+    }
 
     /// <inheritdoc/>
     public override async IAsyncEnumerable<VectorSearchResult<TRecord>> SearchAsync<TInput>(
@@ -194,15 +200,19 @@ public sealed class DotVectorCollection<TKey, TRecord> : VectorStoreCollection<T
         ArgumentNullException.ThrowIfNull(searchValue);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
 
-        if (options is { Filter: not null })
+        DotVector.Query.Filter? translatedFilter = null;
+        if (options?.Filter is { } filterExpr)
         {
-            throw new NotSupportedException(
-                "DotVector M7 不支持表达式 Filter。TODO(M7.2): 翻译 LINQ Expression 到 DotVector.Filter。");
+            translatedFilter = LinqFilterTranslator.Translate(filterExpr, _mapper);
         }
 
         bool includeVectors = options?.IncludeVectors == true;
         var query = ExtractQueryVector(searchValue);
-        var req = new VectorSearchRequest(query, top) { IncludeVector = includeVectors };
+        var req = new VectorSearchRequest(query, top)
+        {
+            IncludeVector = includeVectors,
+            Filter = translatedFilter,
+        };
         var hits = await _client.SearchAsync(Name, req, cancellationToken).ConfigureAwait(false);
 
         foreach (var hit in hits)

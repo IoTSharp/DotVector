@@ -61,6 +61,10 @@ internal sealed class InMemoryDotVectorClient : IDotVectorClient
         var hits = new List<VectorSearchResult>();
         foreach (var (id, value) in col.Records)
         {
+            if (request.Filter is not null && !request.Filter.Matches(AsNullablePayload(value.Payload)))
+            {
+                continue;
+            }
             var score = CosineSimilarity(query, value.Vector);
             hits.Add(new VectorSearchResult(id, score)
             {
@@ -98,10 +102,48 @@ internal sealed class InMemoryDotVectorClient : IDotVectorClient
         return ValueTask.FromResult<IReadOnlyList<VectorRecordDto>>(results);
     }
 
+    public ValueTask<IReadOnlyList<VectorRecordDto>> ScrollAsync(
+        string collectionName,
+        VectorScrollRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var col = _collections[collectionName];
+        var results = new List<VectorRecordDto>();
+        foreach (var (id, value) in col.Records)
+        {
+            if (!request.Filter.Matches(AsNullablePayload(value.Payload)))
+            {
+                continue;
+            }
+            results.Add(new VectorRecordDto(id)
+            {
+                Vector = request.IncludeVector ? (float[])value.Vector.Clone() : null,
+                Payload = value.Payload,
+            });
+            if (results.Count >= request.Top)
+            {
+                break;
+            }
+        }
+        return ValueTask.FromResult<IReadOnlyList<VectorRecordDto>>(results);
+    }
+
     public ValueTask<bool> PingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(true);
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    private static IReadOnlyDictionary<string, object?>? AsNullablePayload(IReadOnlyDictionary<string, object>? payload)
+    {
+        if (payload is null) return null;
+        var d = new Dictionary<string, object?>(payload.Count, StringComparer.Ordinal);
+        foreach (var kv in payload)
+        {
+            d[kv.Key] = kv.Value;
+        }
+        return d;
+    }
 
     private static float CosineSimilarity(float[] a, float[] b)
     {

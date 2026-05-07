@@ -74,6 +74,21 @@ public interface IDotVectorClient : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 按 ID 列表批量取回向量记录（M7.1）。
+    /// </summary>
+    /// <param name="collectionName">目标集合名称。</param>
+    /// <param name="ids">要查询的记录 ID 列表。</param>
+    /// <param name="includeVector">是否在结果中回填向量数据；为 <see langword="false"/> 时
+    /// 返回结果的 <see cref="Protocol.VectorRecordDto.Vector"/> 为 <see langword="null"/>。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>命中记录列表（顺序与 <paramref name="ids"/> 不必一致；缺失的 ID 不会出现在返回值中）。</returns>
+    ValueTask<IReadOnlyList<Protocol.VectorRecordDto>> GetAsync(
+        string collectionName,
+        IReadOnlyList<string> ids,
+        bool includeVector,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 检查客户端与服务端的连接是否正常。
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>

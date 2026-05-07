@@ -369,6 +369,41 @@ public sealed class FlatIndex<TKey> : IIndex<TKey>, IDisposable
     }
 
     /// <summary>
+    /// 尝试将指定主键对应的向量拷贝到目标缓冲区（M7.1）。
+    /// </summary>
+    /// <param name="key">要查询的主键。</param>
+    /// <param name="destination">目标缓冲区，长度必须等于 <see cref="Dimensions"/>。</param>
+    /// <returns>命中返回 <see langword="true"/> 并完成拷贝；未命中返回 <see langword="false"/>。</returns>
+    /// <exception cref="ArgumentException"><paramref name="destination"/> 长度与维度不一致。</exception>
+    public bool TryCopyVectorTo(TKey key, Span<float> destination)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (destination.Length != _dimensions)
+        {
+            throw new ArgumentException(
+                $"目标缓冲区长度 {destination.Length} 与索引维度 {_dimensions} 不一致。",
+                nameof(destination));
+        }
+        ThrowIfDisposed();
+
+        _lock.EnterReadLock();
+        try
+        {
+            if (!_keyToRow.TryGetValue(key, out int row))
+            {
+                return false;
+            }
+            ReadOnlySpan<float> all = CollectionsMarshal.AsSpan(_vectors);
+            all.Slice(row * _dimensions, _dimensions).CopyTo(destination);
+            return true;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
     /// 在读锁保护下生成索引内当前所有键和向量数据的快照副本。
     /// 用于 <see cref="Storage"/> 层的 Segment flush。
     /// </summary>

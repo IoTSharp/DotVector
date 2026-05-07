@@ -6,7 +6,55 @@
 
 ## [Unreleased]
 
+### Changed
+
+- M6 — 标量过滤（Payload Filter）正式标记为 ✅。M6 范围内的 payload 字段、Filter AST、`Collection<TKey>.Search(query, topK, Filter?)` post-filter 重载、`GetPayload(key)` 已交付；B-tree 索引与 payload 持久化已在 M11 完成；"100 万条带过滤搜索 < 100 ms" 验收项显式延期至 M8 BenchmarkDotNet 基准体系。
+- ROADMAP — 把 M7 "已知局限（标 TODO M7+）" 拆分为三个独立子里程碑：**M7.1**（GetAsync(key/keys) + IncludeVectors）、**M7.2**（LINQ Filter Expression 翻译 + GetAsync(filter)）、**M7.3**（Dynamic Collection / ListCollectionNames / VectorStoreCollectionDefinition）。三者依赖独立，可分别 PR。
+
 ### Added
+
+- PR #M7.1：M7.1 — VectorData `GetAsync(key/keys)` + `IncludeVectors` 闭环
+  - `src/DotVector.Core/Protocol/ProtocolDtos.cs`：
+    - `VectorSearchRequest` 新增 `bool IncludeVector { get; init; }`
+    - `VectorSearchResult` 新增 `float[]? Vector { get; init; }`
+    - 新增 `VectorRecordDto`（`Id` + `Vector?` + `Payload`）
+  - `src/DotVector.Core/IDotVectorClient.cs`：新增 `GetAsync(string collectionName, IReadOnlyList<string> ids, bool includeVector, CancellationToken)`
+  - `src/DotVector.Core/Index/Flat/FlatIndex.cs`：新增 `TryCopyVectorTo(TKey, Span<float>)`，读锁保护下零拷贝复制行向量
+  - `src/DotVector.Core/Api/Collection.cs`：
+    - 新增 `TryGet(TKey, out VectorRecord<TKey>?)` 与 `GetMany(ReadOnlySpan<TKey>, bool)`
+    - `BuildRecord` 内部辅助：从 `_payloads` 物化 `Dictionary<string,object>`，跳过 null 值
+  - `src/DotVector.Data/Internal/DotVectorRecordMapper.cs`：`CreateRecord` 增加 `float[]? vector` 重载，将向量回写 `[VectorStoreVector]` 属性（兼容 `float[]` 与 `ReadOnlyMemory<float>` 两种形态）
+  - `src/DotVector.Data/DotVectorCollection.cs`：
+    - `GetAsync(TKey)` / `GetAsync(IEnumerable<TKey>)` 通过 `IDotVectorClient.GetAsync` 实现，按 `RecordRetrievalOptions.IncludeVectors` 透传
+    - `SearchAsync` 透传 `VectorSearchOptions.IncludeVectors` 至 protocol，并把 `VectorSearchResult.Vector` 写回 `TRecord`
+    - 移除 M7 `IncludeVectors=true` / `GetAsync` 的 `NotSupportedException`
+  - `tests/DotVector.Core.Tests/Persistence/CollectionTryGetTests.cs`：新增 4 个测试覆盖 TryGet 命中/未命中、Flush+Compact+Reopen round-trip、`GetMany`
+  - `tests/DotVector.Tests/DotVectorVectorStoreTests.cs`：删除 M7 限制断言，新增 6 个正向测试覆盖 `GetAsync(key)` / `GetAsync(keys)` / `IncludeVectors` 行为
+  - `tests/DotVector.Tests/InMemoryDotVectorClient.cs`：实现 `GetAsync` 与 `SearchAsync` 的 `IncludeVector` 路径
+  - 全部 220 个测试通过
+
+### Added
+
+- PR #M7：M7 — `Microsoft.Extensions.VectorData.Abstractions` 适配层
+  - `src/DotVector.Data/DotVectorVectorStore.cs`：继承 `VectorStore`，封装 `IDotVectorClient`
+    - 重写 `GetCollection<TKey, TRecord>` / `EnsureCollectionDeletedAsync` / `CollectionExistsAsync` / `GetService`
+    - `GetDynamicCollection` / `ListCollectionNamesAsync` 暂抛 `NotSupportedException`（TODO M7+）
+  - `src/DotVector.Data/DotVectorCollection.cs`：继承 `VectorStoreCollection<TKey, TRecord>`
+    - 实现 `EnsureCollectionExistsAsync`（依据 `[VectorStoreVector]` 维度 + 距离函数自动 `CreateCollectionAsync`）
+    - 实现 `UpsertAsync` 单条/批量、`DeleteAsync` 单条/批量
+    - 实现 `SearchAsync<TInput>`：支持 `float[]` / `ReadOnlyMemory<float>` / `Memory<float>` / `IEnumerable<float>` 查询；`IncludeVectors=true` 与非空 `Filter` 暂抛 `NotSupportedException`
+    - `GetAsync`（按 key / 按 keys / 按 Expression filter）暂抛 `NotSupportedException`（TODO M7+）
+  - `src/DotVector.Data/Internal/DotVectorRecordMapper.cs`：基于反射映射 `TRecord` 与 `VectorUpsertRecord`/`VectorSearchResult`
+    - 解析 `[VectorStoreKey]` / `[VectorStoreVector]` / `[VectorStoreData]` 特性
+    - 标注 `[RequiresUnreferencedCode]` + `[RequiresDynamicCode]`，AOT 友好向后兼容
+  - `src/DotVector.Data/Internal/KeyConverter.cs`：支持 `string` / `int` / `long` / `Guid` 键类型 round-trip
+  - `src/DotVector.Data/Internal/DistanceFunctionMapper.cs`：`DistanceFunction.*` 字符串常量映射到 DotVector metric（Cosine / L2 / DotProduct / InnerProduct / Hamming）
+  - `src/DotVector.Data/DependencyInjection/DotVectorServiceCollectionExtensions.cs`：`AddDotVectorVectorStore(...)` 注册到 `IServiceCollection`
+  - `Directory.Packages.props`：新增 `Microsoft.Extensions.DependencyInjection.Abstractions` 9.0.0
+  - `src/DotVector.Data/DotVector.Data.csproj`：引入 `Microsoft.Extensions.VectorData.Abstractions` + DI Abstractions；`InternalsVisibleTo` 暴露给 `DotVector.Tests`
+  - 架构约束：`DotVector.Data` 仅依赖 `DotVector.Core`，**不**直接引用 `DotVector`（服务端壳），新增程序集引用断言测试
+  - `tests/DotVector.Tests/`：新增 9 个 M7 集成测试 + `InMemoryDotVectorClient` brute-force cosine 模拟实现
+  - 全部 212 个测试通过
 
 - PR #M11：M11 — Payload 持久化 + 标量 B-tree pre-filter 索引（M6 延续）
   - **Payload 持久化**

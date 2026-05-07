@@ -109,6 +109,12 @@ public sealed class VectorSearchRequest
     /// TODO(M6): 定义结构化过滤 DSL，替换字符串占位。
     /// </remarks>
     public string? Filter { get; init; }
+
+    /// <summary>
+    /// 是否在 <see cref="VectorSearchResult.Vector"/> 中回填命中向量（M7.1）。
+    /// 默认 <see langword="false"/>。
+    /// </summary>
+    public bool IncludeVector { get; init; }
 }
 
 /// <summary>
@@ -141,6 +147,46 @@ public sealed class VectorSearchResult
 
     /// <summary>
     /// 可选的标量 payload（M6 后启用）。
+    /// </summary>
+    public IReadOnlyDictionary<string, object>? Payload { get; init; }
+
+    /// <summary>
+    /// 命中记录的向量数据。仅当 <see cref="VectorSearchRequest.IncludeVector"/>
+    /// 为 <see langword="true"/> 时由服务端回填，否则为 <see langword="null"/>。
+    /// </summary>
+    public float[]? Vector { get; init; }
+}
+
+/// <summary>
+/// 按 ID 取回向量记录的结果 DTO（M7.1）。
+/// 由 <see cref="IDotVectorClient.GetAsync"/> 返回。
+/// </summary>
+/// <remarks>
+/// TODO(M9): 映射到 gRPC Protobuf VectorRecord 消息。
+/// </remarks>
+public sealed class VectorRecordDto
+{
+    /// <summary>
+    /// 初始化 <see cref="VectorRecordDto"/>。
+    /// </summary>
+    /// <param name="id">记录唯一标识。</param>
+    public VectorRecordDto(string id)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(id);
+        Id = id;
+    }
+
+    /// <summary>记录唯一标识。</summary>
+    public string Id { get; }
+
+    /// <summary>
+    /// 记录的 float32 向量数据。仅当 <see cref="IDotVectorClient.GetAsync"/>
+    /// 的 <c>includeVector</c> 参数为 <see langword="true"/> 时填充，否则为 <see langword="null"/>。
+    /// </summary>
+    public float[]? Vector { get; init; }
+
+    /// <summary>
+    /// 可选的 payload（M6 标量字段）。
     /// </summary>
     public IReadOnlyDictionary<string, object>? Payload { get; init; }
 }

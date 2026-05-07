@@ -79,11 +79,11 @@ public sealed class SmokeTests
     /// DotVector.Data 只应依赖 DotVector.Core 中的 IDotVectorClient 协议接口。
     /// </summary>
     [Fact]
-    public void DotVectorData_PlaceholderStatus_ContainsProtocolDescription()
+    public void DotVectorData_AssemblyDoesNotReferenceServerShell()
     {
-        string status = DotVectorVectorDataPlaceholder.GetStatus();
-
-        // 验证描述中包含协议接口关键词，而非直接服务端实现引用
-        Assert.Contains("IDotVectorClient", status);
+        var asm = typeof(DotVectorVectorStore).Assembly;
+        var refs = asm.GetReferencedAssemblies();
+        Assert.DoesNotContain(refs, r =>
+            string.Equals(r.Name, "DotVector", StringComparison.Ordinal));
     }
 }

@@ -12,8 +12,11 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M3 | ✅ | HNSW 索引 |
 | M4 | ✅ | IVF / IVF-PQ 索引 |
 | M5 | ✅ | 持久化层（目录格式 + WAL） |
-| M6 | 🚧 | 标量过滤（Payload Filter） |
-| M7 | ⏳ | `Microsoft.Extensions.VectorData` 适配 |
+| M6 | ✅ | 标量过滤（Payload Filter） |
+| M7 | ✅ | `Microsoft.Extensions.VectorData` 适配 |
+| M7.1 | ✅ | VectorData GetAsync(key/keys) + IncludeVectors（M7 延续） |
+| M7.2 | ⏳ | VectorData LINQ Filter Expression 翻译（M7 延续） |
+| M7.3 | ⏳ | VectorData Dynamic / ListCollectionNames / Definition（M7 延续） |
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
 | M9 | ⏳ | gRPC Server + Native AOT + Docker |
 | M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
@@ -200,7 +203,7 @@ my-database.dvec/
 
 ---
 
-## 🚧 M6 — 标量过滤（Payload Filter）
+## ✅ M6 — 标量过滤（Payload Filter）
 
 **目标**：支持在向量搜索时附加标量条件过滤，类似 Qdrant payload index / pgvector `WHERE`。
 
@@ -224,7 +227,7 @@ my-database.dvec/
 
 ---
 
-## ⏳ M7 — `Microsoft.Extensions.VectorData` 适配
+## ✅ M7 — `Microsoft.Extensions.VectorData` 适配
 
 **目标**：实现 `IVectorStore` / `IVectorStoreRecordCollection` 接口，与 Semantic Kernel 深度集成。
 
@@ -242,10 +245,18 @@ my-database.dvec/
 - Semantic Kernel VectorData providers
 
 **验收标准**：
-- [ ] 通过 `IVectorStore` 抽象完成增删改查
-- [ ] 与 Semantic Kernel TextMemory 集成 smoke 测试通过
-- [ ] 符合 `VectorStoreRecordDefinition` 规范（字段映射、向量字段标注）
-- [ ] `DotVector.Data` 项目无对 `DotVector`（服务端）程序集的直接引用（CI 检查）
+- [x] 通过 `VectorStore` / `VectorStoreCollection<TKey, TRecord>` 抽象完成增删改查（Upsert / Delete / Search；`GetAsync` 暂未实现，标 TODO M7+）
+- [ ] 与 Semantic Kernel TextMemory 集成 smoke 测试通过（推迟，待 SK 升级到 VectorData 9.5.0 后补）
+- [x] 符合 `[VectorStoreKey]` / `[VectorStoreVector]` / `[VectorStoreData]` 特性规范（`DotVectorRecordMapper`）
+- [x] `DotVector.Data` 项目无对 `DotVector`（服务端）程序集的直接引用（`tests/DotVector.Tests/SmokeTests.cs` 程序集引用断言）
+
+**已知局限（拆分至 M7.1 / M7.2 / M7.3）**：
+- `GetAsync(key)` / `GetAsync(keys)` 未实现 → **M7.1**
+- `SearchAsync` 不支持 `IncludeVectors=true` → **M7.1**
+- `SearchAsync` 不支持非空 `Filter` 表达式（LINQ Expression → DotVector Filter 翻译器） → **M7.2**
+- `GetAsync(filter)` 未实现（依赖 M7.2 翻译器） → **M7.2**
+- `GetDynamicCollection` / `ListCollectionNamesAsync` 未实现 → **M7.3**
+- `VectorStoreCollectionDefinition` 仅支持反射推断模式，不支持显式定义传入 → **M7.3**
 
 ---
 
@@ -336,6 +347,76 @@ my-database.dvec/
 - [x] payload 重启后不丢失（WAL replay + Segment 重载）
 - [ ] 大集合（100 万条）带过滤搜索延迟 < 100 ms（需 M8 基准体系验证）
 - [x] B-tree 索引在 Eq/Range/And 可下推场景下优于 post-filter（pre-filter 仅扫描候选行）
+
+---
+
+## ✅ M7.1 — VectorData GetAsync(key/keys) + IncludeVectors（M7 延续）
+
+**背景**：M7 适配层完成了 Upsert / Delete / Search 的最小闭环，但未实现按 key 取回与向量回传，下游 RAG / 召回审计场景必需。本 milestone 闭合这一缺口。
+
+**实现内容**：
+- `IDotVectorClient` 协议扩展：
+  - `GetAsync(string collectionName, IReadOnlyList<string> ids, bool includeVector, CancellationToken)` → `IReadOnlyList<VectorRecordDto>`
+  - `VectorRecordDto`：`Id` + `Vector?`（`includeVector=false` 时为 null）+ `Payload`
+- `DotVector.Core.Api.Collection<TKey>` 新增：
+  - `TryGet(TKey key, out VectorRecord<TKey>? record)` — MemTable 查；未命中再扫 Segment（mmap 切片读 vectors.bin + 已加载的 payload）
+  - `GetMany(ReadOnlySpan<TKey> keys, bool includeVectors)` — 批量
+- `LocalDotVectorClient` / `InMemoryDotVectorClient` 同步实现 `GetAsync`
+- `Protocol.VectorSearchResult` 新增 `float[]? Vector` 字段；`SearchAsync` 路径在 `IncludeVectors=true` 时回填
+- `DotVectorCollection<TKey,TRecord>`：
+  - `GetAsync(TKey key, RecordRetrievalOptions?)` / `GetAsync(IEnumerable<TKey>, ...)` 走 `IDotVectorClient.GetAsync`
+  - `SearchAsync` 透传 `options.IncludeVectors` 到 protocol，Mapper 反向把 `Vector` 写回 `[VectorStoreVector]` 属性
+
+**验收标准**：
+- [x] `Collection<TKey>.TryGet` round-trip 测试：Upsert → Flush（强制 Segment 化）→ 重新打开 DB → `TryGet` 命中且向量 / payload 字节级一致
+- [x] `DotVectorCollection.GetAsync(key)` 与 `GetAsync(keys)` 在嵌入式与 InMemory 客户端下行为一致
+- [x] `SearchAsync` 在 `IncludeVectors=true` 时返回 `TRecord` 的向量属性非空
+- [x] AOT 编译路径无新增 IL 警告
+
+---
+
+## ⏳ M7.2 — VectorData LINQ Filter Expression 翻译（M7 延续）
+
+**背景**：M7 的 `SearchAsync` 与未来的 `GetAsync(filter)` 都要求把 `Expression<Func<TRecord,bool>>` 翻译为 DotVector 的 sealed Filter AST，才能复用 M11 已落地的 B-tree pre-filter 下推。
+
+**实现内容**：
+- `DotVector.Data.Filters.LinqFilterTranslator`：`ExpressionVisitor` 翻译器
+  - 支持 `==` / `!=` / `<` / `<=` / `>` / `>=` / `&&` / `||` / `!`
+  - 支持 `string.Equals` / `Contains`（仅 Eq 等价场景）
+  - 支持 `payload[key]` 与映射后的 `[VectorStoreData] property` 两种访问形式（reflection-free 经由 mapper 元数据查表）
+  - 不支持的节点（方法调用、子查询）→ 抛 `NotSupportedException` 并提示降级方案
+- `IDotVectorClient.GetAsync(string collectionName, FilterDto filter, int? limit, CancellationToken)` — 全量 Scan + filter
+- `DotVector.Core.Api.Collection<TKey>.Scan(Filter, int? limit)` — 顺序遍历 MemTable + Segment，复用 `FilterIntrospection` 命中 B-tree 时走候选集
+- `DotVectorCollection<TKey,TRecord>`：
+  - `SearchAsync(...).Filter` 非空时翻译 → 透传到 `IDotVectorClient.SearchAsync.Filter`
+  - `GetAsync(Expression<Func<TRecord,bool>> filter, int top, ...)` 实现
+
+**验收标准**：
+- [ ] 翻译器单元测试覆盖所有支持运算符的真值表；不支持节点抛清晰异常
+- [ ] `SearchAsync` 带 LINQ Filter 等价 `Collection<TKey>.Search(query, topK, Filter)` 结果（顺序、score、命中集）
+- [ ] B-tree pre-filter 在 LINQ 翻译路径上仍生效（断言 SearchSubset 被调用）
+- [ ] reflection-free：翻译器无 `MethodInfo.Invoke` / `PropertyInfo.GetValue`，所有访问通过预计算的 mapper accessor delegate
+
+---
+
+## ⏳ M7.3 — VectorData Dynamic Collection / ListCollectionNames / Definition（M7 延续）
+
+**背景**：补齐 `VectorStore` 抽象层最后两块：枚举集合、动态 schema（无 POCO 定义）。这是 SK Plugin / 通用 RAG framework 接入的前提。
+
+**实现内容**：
+- `IDotVectorClient.ListCollectionsAsync(CancellationToken)` → `IReadOnlyList<CollectionInfo>`（name + dim + metric + record count）
+  - `LocalDotVectorClient` 走 `VectorDatabase.Catalog`；`InMemoryDotVectorClient` 走内部 dict
+- `DotVectorVectorStore`：
+  - `ListCollectionNamesAsync` 实现
+  - `GetDynamicCollection(string name, VectorStoreCollectionDefinition definition)` 返回 `DotVectorDynamicCollection : VectorStoreCollection<object, Dictionary<string,object?>>`
+- `DotVector.Data.Mapping.DefinitionRecordMapper`：从 `VectorStoreCollectionDefinition` 构建 mapper（与 `DotVectorRecordMapper` 共用同一抽象 `IRecordMapper<TRecord>`），不依赖反射 attribute 扫描
+- `DotVectorCollection` 构造接受可选 `VectorStoreCollectionDefinition` 覆盖反射推断结果
+
+**验收标准**：
+- [ ] `ListCollectionNamesAsync` 在嵌入式与 InMemory 客户端下返回所有已建集合
+- [ ] `GetDynamicCollection` 端到端：建集合 → upsert `Dictionary<string,object?>` → search 命中
+- [ ] 显式 `VectorStoreCollectionDefinition` 与反射推断模式行为一致（同一组测试参数化两次）
+- [ ] `DotVector.Data` 仍无对 `DotVector`（服务端壳）的程序集引用（断言保留）
 
 ---
 

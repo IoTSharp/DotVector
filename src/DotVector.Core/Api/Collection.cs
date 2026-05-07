@@ -247,6 +247,94 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
     }
 
     /// <summary>
+    /// 按主键尝试取回向量记录（M7.1）。
+    /// </summary>
+    /// <param name="key">记录主键。</param>
+    /// <param name="record">命中时输出包含 <see cref="VectorRecord{TKey}.Vector"/> 与 <see cref="VectorRecord{TKey}.Payload"/> 的记录；未命中输出 <see langword="null"/>。</param>
+    /// <returns>命中返回 <see langword="true"/>，未命中返回 <see langword="false"/>。</returns>
+    /// <remarks>
+    /// 当前 (M7.1) 实现假定向量在内存索引中（FlatIndex 持有完整数据；持久化重启时 <see cref="VectorDatabase"/> 会把
+    /// Segment 全量重放回 FlatIndex）。其他索引类型（HNSW / IVF）尚未提供按 key 取回，调用会抛出
+    /// <see cref="NotSupportedException"/>。
+    /// </remarks>
+    public bool TryGet(TKey key, out VectorRecord<TKey>? record)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ThrowIfDisposed();
+
+        if (_index is not FlatIndex<TKey> flat)
+        {
+            throw new NotSupportedException(
+                "TryGet 当前仅支持 FlatIndex 后端（M7.1）；HNSW / IVF 的按 key 取回计划在后续 milestone 实现。");
+        }
+
+        float[] buffer = new float[Dimensions];
+        if (!flat.TryCopyVectorTo(key, buffer))
+        {
+            record = null;
+            return false;
+        }
+
+        record = BuildRecord(key, buffer);
+        return true;
+    }
+
+    /// <summary>
+    /// 按主键批量取回向量记录（M7.1）。
+    /// </summary>
+    /// <param name="keys">主键列表。</param>
+    /// <param name="includeVectors">是否在结果中携带向量数据。当前实现始终携带（向量已驻留内存），
+    /// 该参数保留为协议/序列化层的优化提示，未来若引入按需从 Segment 加载的路径时启用。</param>
+    /// <returns>命中记录列表（顺序与 <paramref name="keys"/> 一致；缺失主键被跳过，不会出现在结果中）。</returns>
+    public IReadOnlyList<VectorRecord<TKey>> GetMany(ReadOnlySpan<TKey> keys, bool includeVectors)
+    {
+        _ = includeVectors; // 当前实现始终携带向量；保留参数以兼容协议层语义。
+        ThrowIfDisposed();
+
+        if (_index is not FlatIndex<TKey> flat)
+        {
+            throw new NotSupportedException(
+                "GetMany 当前仅支持 FlatIndex 后端（M7.1）；HNSW / IVF 的按 key 取回计划在后续 milestone 实现。");
+        }
+
+        var results = new List<VectorRecord<TKey>>(keys.Length);
+        for (int i = 0; i < keys.Length; i++)
+        {
+            TKey key = keys[i];
+            ArgumentNullException.ThrowIfNull(key);
+            float[] buffer = new float[Dimensions];
+            if (flat.TryCopyVectorTo(key, buffer))
+            {
+                results.Add(BuildRecord(key, buffer));
+            }
+        }
+        return results;
+    }
+
+    private VectorRecord<TKey> BuildRecord(TKey key, float[] vector)
+    {
+        var record = new VectorRecord<TKey>(key, vector);
+        if (_payloads.TryGetValue(key, out IReadOnlyDictionary<string, object?>? payload) && payload.Count > 0)
+        {
+            // VectorRecord.Payload 类型为 Dictionary<string, object>（不允许 null 值），
+            // 这里把内部 IReadOnlyDictionary<string, object?> 中的非 null 值复制出来。
+            var copy = new Dictionary<string, object>(payload.Count, StringComparer.Ordinal);
+            foreach (KeyValuePair<string, object?> kv in payload)
+            {
+                if (kv.Value is not null)
+                {
+                    copy[kv.Key] = kv.Value;
+                }
+            }
+            if (copy.Count > 0)
+            {
+                record = new VectorRecord<TKey>(key, vector) { Payload = copy };
+            }
+        }
+        return record;
+    }
+
+    /// <summary>
     /// 执行近似最近邻（ANN）搜索，返回最相似的 K 条记录。
     /// </summary>
     /// <param name="query">查询向量（维度须与集合一致）。</param>

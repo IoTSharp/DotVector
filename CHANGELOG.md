@@ -8,6 +8,14 @@
 
 ### Added
 
+- PR #M13.1：M13.1 — `IVectorQuantizer` 通用量化抽象 + `ScalarQuantizer8`（SQ8）实现
+  - `src/DotVector.Core/Compression/QuantizerKind.cs`（新增）：枚举 `None=0 / Sq8=1 / Pq=2 / Opq=3 / Rq=4`，固定数值用于 `quantizer.bin` 持久化首字节
+  - `src/DotVector.Core/Compression/IVectorQuantizer.cs`（新增）：统一接口，含 `Kind` / `Dimensions` / `CodeBytes` / `IsTrained` / `Train` / `Encode` / `Decode`，约束训练后 Encode/Decode 线程安全
+  - `src/DotVector.Core/Compression/ScalarQuantizer8.cs`（新增）：逐维 min/max → uint8 量化器，训练阶段使用 `TensorPrimitives.Min/Max` 逐行更新；Encode 走 `MathF.Round` + clamp；Decode 反量化为 `min + code * scale`；零方差维度自动短路（scale=0）；Encode/Decode 零额外分配；提供 internal `Min/Scale` 调试只读视图
+  - `tests/DotVector.Core.Tests/Compression/ScalarQuantizer8Tests.cs`（新增 9 个测试）：构造参数校验 / 未训练抛出 / Train 长度校验 / 学习的 min 与重算结果一致 / 256 行 32 维随机数据 round-trip 误差 ≤ step/2 / 编码端到端覆盖 0 与 255 / 中点落在 [126, 129] / 零方差维度优雅处理 / 缓冲过小与维度不匹配抛 `ArgumentException`
+  - 全量回归：288 个测试通过（baseline 279 + SQ8 新增 9）
+  - 后续 PR：M13.2（PqCodebook 升级为 ProductQuantizer 并实现 ADC 距离内核）
+
 - PR #M12.4：M12.4 — Vamana 索引与 M11 ScalarIndex pre-filter 集成
   - `src/DotVector.Core/Index/DiskAnn/VamanaIndex.cs`：新增 `SearchSubset(query, topK, candidateKeys, results)`，在 ScalarIndex 解析出的候选键集合上做精确扫描（mirrors `FlatIndex<TKey>.SearchSubset`），保证子集上 100% 召回；候选集为空 / 全部命中 tombstone 时返回 0；`Hamming` 度量隐式继承 `Search` 的拒绝行为；XML 注释中说明 DiskANN-Filter 风格的 FilteredBeamSearch 留待后续 milestone
   - `src/DotVector.Core/Api/Collection.cs`：`Search` 的过滤下推路径同时支持 `FlatIndex<TKey>` 与 `VamanaIndex<TKey>`；当 `ScalarIndex.TryResolveCandidates(filter, ...)` 返回完整候选集时，统一通过 `ArrayPool` 缓冲走 `SearchSubset` 路径，再用 `Filter.Matches` 做兜底校验；候选集为空时短路返回

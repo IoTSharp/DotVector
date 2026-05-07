@@ -16,7 +16,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M7 | ✅ | `Microsoft.Extensions.VectorData` 适配 |
 | M7.1 | ✅ | VectorData GetAsync(key/keys) + IncludeVectors（M7 延续） |
 | M7.2 | ✅ | VectorData LINQ Filter Expression 翻译（M7 延续） |
-| M7.3 | ⏳ | VectorData Dynamic / ListCollectionNames / Definition（M7 延续） |
+| M7.3 | ✅ | VectorData Dynamic / ListCollectionNames / Definition（M7 延续） |
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
 | M9 | ⏳ | gRPC Server + Native AOT + Docker |
 | M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
@@ -401,7 +401,7 @@ my-database.dvec/
 
 ---
 
-## ⏳ M7.3 — VectorData Dynamic Collection / ListCollectionNames / Definition（M7 延续）
+## ✅ M7.3 — VectorData Dynamic Collection / ListCollectionNames / Definition（M7 延续）
 
 **背景**：补齐 `VectorStore` 抽象层最后两块：枚举集合、动态 schema（无 POCO 定义）。这是 SK Plugin / 通用 RAG framework 接入的前提。
 
@@ -411,14 +411,14 @@ my-database.dvec/
 - `DotVectorVectorStore`：
   - `ListCollectionNamesAsync` 实现
   - `GetDynamicCollection(string name, VectorStoreCollectionDefinition definition)` 返回 `DotVectorDynamicCollection : VectorStoreCollection<object, Dictionary<string,object?>>`
-- `DotVector.Data.Mapping.DefinitionRecordMapper`：从 `VectorStoreCollectionDefinition` 构建 mapper（与 `DotVectorRecordMapper` 共用同一抽象 `IRecordMapper<TRecord>`），不依赖反射 attribute 扫描
+- `DotVector.Data.Internal.DotVectorRecordMapper<TKey,TRecord>`：新增基于 `VectorStoreCollectionDefinition` 的构造函数（与原 attribute 反射构造共用同一类型），不依赖反射 attribute 扫描
 - `DotVectorCollection` 构造接受可选 `VectorStoreCollectionDefinition` 覆盖反射推断结果
 
 **验收标准**：
-- [ ] `ListCollectionNamesAsync` 在嵌入式与 InMemory 客户端下返回所有已建集合
-- [ ] `GetDynamicCollection` 端到端：建集合 → upsert `Dictionary<string,object?>` → search 命中
-- [ ] 显式 `VectorStoreCollectionDefinition` 与反射推断模式行为一致（同一组测试参数化两次）
-- [ ] `DotVector.Data` 仍无对 `DotVector`（服务端壳）的程序集引用（断言保留）
+- [x] `ListCollectionNamesAsync` 在 InMemory 客户端下返回所有已建集合（嵌入式 `LocalDotVectorClient` 留待 M9）
+- [x] `GetDynamicCollection` 端到端：建集合 → upsert `Dictionary<string,object?>` → search 命中
+- [x] 显式 `VectorStoreCollectionDefinition` 与反射推断模式行为一致（同一组测试参数化两次）
+- [x] `DotVector.Data` 仍无对 `DotVector`（服务端壳）的程序集引用（断言保留）
 
 ---
 

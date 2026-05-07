@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using DotVector.Core;
+using DotVector.Data.Internal;
 using Microsoft.Extensions.VectorData;
 
 namespace DotVector.Data;
@@ -44,29 +46,32 @@ public sealed class DotVectorVectorStore : VectorStore
         VectorStoreCollectionDefinition? definition = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
-        if (definition is not null)
-        {
-            // TODO(M7+): 支持基于 VectorStoreCollectionDefinition 的动态 schema。
-            throw new NotSupportedException(
-                "DotVector M7 仅支持基于属性标注的 TRecord 映射，不支持显式 VectorStoreCollectionDefinition。" +
-                " TODO(M7+): 接入 Definition 驱动的映射。");
-        }
-        return new DotVectorCollection<TKey, TRecord>(_client, name);
+        return new DotVectorCollection<TKey, TRecord>(_client, name, definition);
     }
 
     /// <inheritdoc/>
     public override VectorStoreCollection<object, Dictionary<string, object?>> GetDynamicCollection(
         string name,
         VectorStoreCollectionDefinition definition)
-        => throw new NotSupportedException(
-            "DotVector M7 不支持 GetDynamicCollection。TODO(M7+): 后续版本接入。");
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentNullException.ThrowIfNull(definition);
+        return new DotVectorDynamicCollection(_client, name, definition);
+    }
 
     /// <inheritdoc/>
     public override async Task<bool> CollectionExistsAsync(string name, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
-        // TODO(M7+): IDotVectorClient 增加 ListCollections 后改为查询。
-        return await _client.PingAsync(cancellationToken).ConfigureAwait(false);
+        var infos = await _client.ListCollectionsAsync(cancellationToken).ConfigureAwait(false);
+        for (int i = 0; i < infos.Count; i++)
+        {
+            if (string.Equals(infos[i].Name, name, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <inheritdoc/>
@@ -77,9 +82,15 @@ public sealed class DotVectorVectorStore : VectorStore
     }
 
     /// <inheritdoc/>
-    public override IAsyncEnumerable<string> ListCollectionNamesAsync(CancellationToken cancellationToken = default)
-        => throw new NotSupportedException(
-            "DotVector M7 不支持 ListCollectionNamesAsync。TODO(M7+): IDotVectorClient 增加 ListCollections 后实现。");
+    public override async IAsyncEnumerable<string> ListCollectionNamesAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var infos = await _client.ListCollectionsAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var info in infos)
+        {
+            yield return info.Name;
+        }
+    }
 
     /// <inheritdoc/>
     public override object? GetService(Type serviceType, object? serviceKey = null)

@@ -102,6 +102,15 @@ public interface IDotVectorClient : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 列出服务端当前所有集合及其基础元数据（M7.3）。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>集合元数据列表（顺序由实现定义）。</returns>
+    /// <remarks>TODO(M9): 映射到 gRPC <c>ListCollections</c> RPC。</remarks>
+    ValueTask<IReadOnlyList<Protocol.CollectionInfo>> ListCollectionsAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 检查客户端与服务端的连接是否正常。
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>

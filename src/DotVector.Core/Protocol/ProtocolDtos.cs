@@ -223,3 +223,44 @@ public sealed class VectorScrollRequest
     /// <summary>是否在结果中回填向量数据。</summary>
     public bool IncludeVector { get; init; }
 }
+
+/// <summary>
+/// 描述服务端某个集合元数据的 DTO（M7.3）。
+/// 由 <see cref="IDotVectorClient.ListCollectionsAsync"/> 返回。
+/// </summary>
+/// <remarks>
+/// TODO(M9): 映射到 gRPC Protobuf CollectionInfo 消息。
+/// </remarks>
+public sealed class CollectionInfo
+{
+    /// <summary>
+    /// 初始化 <see cref="CollectionInfo"/>。
+    /// </summary>
+    /// <param name="name">集合名称。</param>
+    /// <param name="dimensions">向量维度。</param>
+    /// <param name="metric">距离度量字符串（与 <see cref="CreateCollectionRequest.Metric"/> 一致）。</param>
+    /// <param name="recordCount">当前已存储的记录数。</param>
+    public CollectionInfo(string name, int dimensions, string metric, long recordCount)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimensions);
+        ArgumentException.ThrowIfNullOrEmpty(metric);
+        ArgumentOutOfRangeException.ThrowIfNegative(recordCount);
+        Name = name;
+        Dimensions = dimensions;
+        Metric = metric;
+        RecordCount = recordCount;
+    }
+
+    /// <summary>集合名称。</summary>
+    public string Name { get; }
+
+    /// <summary>向量维度。</summary>
+    public int Dimensions { get; }
+
+    /// <summary>距离度量字符串。</summary>
+    public string Metric { get; }
+
+    /// <summary>当前已存储的记录数。</summary>
+    public long RecordCount { get; }
+}

@@ -41,12 +41,27 @@ public sealed class DotVectorCollection<TKey, TRecord> : VectorStoreCollection<T
     /// <param name="client">DotVector 协议客户端（不会被本类型 dispose）。</param>
     /// <param name="name">集合名称。</param>
     public DotVectorCollection(IDotVectorClient client, string name)
+        : this(client, name, definition: null)
+    {
+    }
+
+    /// <summary>
+    /// 初始化 <see cref="DotVectorCollection{TKey, TRecord}"/>，可选地接受显式集合定义（M7.3）。
+    /// </summary>
+    /// <param name="client">DotVector 协议客户端（不会被本类型 dispose）。</param>
+    /// <param name="name">集合名称。</param>
+    /// <param name="definition">可选的 <see cref="VectorStoreCollectionDefinition"/>。
+    /// 提供时按定义中的属性名映射 <typeparamref name="TRecord"/>，忽略 attribute 标注；
+    /// 为 <see langword="null"/> 时回退到基于 attribute 的反射映射。</param>
+    public DotVectorCollection(IDotVectorClient client, string name, VectorStoreCollectionDefinition? definition)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrEmpty(name);
         _client = client;
         Name = name;
-        _mapper = new DotVectorRecordMapper<TKey, TRecord>();
+        _mapper = definition is null
+            ? new DotVectorRecordMapper<TKey, TRecord>()
+            : new DotVectorRecordMapper<TKey, TRecord>(definition);
         _metadata = new VectorStoreCollectionMetadata
         {
             VectorStoreSystemName = "dotvector",
@@ -58,9 +73,18 @@ public sealed class DotVectorCollection<TKey, TRecord> : VectorStoreCollection<T
     public override string Name { get; }
 
     /// <inheritdoc/>
-    /// <remarks>当前实现总是返回 <c>true</c>。TODO(M7+): 在 <see cref="IDotVectorClient"/> 增加 ListCollections 后改为查询。</remarks>
-    public override Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult(true);
+    public override async Task<bool> CollectionExistsAsync(CancellationToken cancellationToken = default)
+    {
+        var infos = await _client.ListCollectionsAsync(cancellationToken).ConfigureAwait(false);
+        for (int i = 0; i < infos.Count; i++)
+        {
+            if (string.Equals(infos[i].Name, Name, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// <inheritdoc/>
     public override async Task EnsureCollectionExistsAsync(CancellationToken cancellationToken = default)

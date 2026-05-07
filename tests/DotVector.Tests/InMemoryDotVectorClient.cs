@@ -132,6 +132,16 @@ internal sealed class InMemoryDotVectorClient : IDotVectorClient
     public ValueTask<bool> PingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(true);
 
+    public ValueTask<IReadOnlyList<CollectionInfo>> ListCollectionsAsync(CancellationToken cancellationToken = default)
+    {
+        var infos = new List<CollectionInfo>(_collections.Count);
+        foreach (var (name, col) in _collections)
+        {
+            infos.Add(new CollectionInfo(name, col.Dimensions, col.Metric, col.Records.Count));
+        }
+        return ValueTask.FromResult<IReadOnlyList<CollectionInfo>>(infos);
+    }
+
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     private static IReadOnlyDictionary<string, object?>? AsNullablePayload(IReadOnlyDictionary<string, object>? payload)

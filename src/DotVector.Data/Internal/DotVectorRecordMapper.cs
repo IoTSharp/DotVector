@@ -33,6 +33,7 @@ internal sealed class DotVectorRecordMapper<TKey, TRecord>
     private readonly bool _vectorIsArray; // false => ReadOnlyMemory<float>
     private readonly PropertyInfo[] _dataProperties;
     private readonly Dictionary<string, PropertyInfo> _dataByStorageName;
+    private readonly Dictionary<string, string> _dataStorageNames;
 
     /// <summary>记录中向量字段声明的维度。</summary>
     public int Dimensions { get; }
@@ -120,6 +121,107 @@ internal sealed class DotVectorRecordMapper<TKey, TRecord>
         _dataByStorageName = data.ToDictionary(
             p => p.GetCustomAttribute<VectorStoreDataAttribute>()?.StorageName ?? p.Name,
             StringComparer.Ordinal);
+        _dataStorageNames = data.ToDictionary(
+            p => p.Name,
+            p => p.GetCustomAttribute<VectorStoreDataAttribute>()?.StorageName ?? p.Name,
+            StringComparer.Ordinal);
+        Dimensions = dims;
+        DistanceFunction = distance;
+    }
+
+    /// <summary>
+    /// 基于显式 <see cref="VectorStoreCollectionDefinition"/> 构造映射器（M7.3）。
+    /// 通过属性 <see cref="VectorStoreProperty.Name"/> 在 <typeparamref name="TRecord"/>
+    /// 上反射查找同名属性，忽略 <c>[VectorStoreKey]</c> / <c>[VectorStoreVector]</c> /
+    /// <c>[VectorStoreData]</c> 等 attribute 标注。
+    /// </summary>
+    /// <param name="definition">集合定义（必须含一个 Key + 一个 Vector 属性）。</param>
+    public DotVectorRecordMapper(VectorStoreCollectionDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var t = typeof(TRecord);
+        var props = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .ToDictionary(p => p.Name, StringComparer.Ordinal);
+
+        PropertyInfo? key = null;
+        PropertyInfo? vector = null;
+        var data = new List<(PropertyInfo Prop, string StorageName)>();
+        int dims = 0;
+        string? distance = null;
+
+        foreach (var dp in definition.Properties)
+        {
+            if (!props.TryGetValue(dp.Name, out var clr))
+            {
+                throw new InvalidOperationException(
+                    $"VectorStoreCollectionDefinition 中声明的属性 '{dp.Name}' 在 {t.FullName} 上不存在。");
+            }
+
+            switch (dp)
+            {
+                case VectorStoreKeyProperty:
+                    if (key is not null)
+                    {
+                        throw new InvalidOperationException(
+                            $"VectorStoreCollectionDefinition 中存在多个 Key 属性，DotVector.Data 仅支持单主键。");
+                    }
+                    if (clr.PropertyType != typeof(TKey))
+                    {
+                        throw new InvalidOperationException(
+                            $"{t.FullName}.{clr.Name} 的类型 {clr.PropertyType.Name} 与 TKey={typeof(TKey).Name} 不一致。");
+                    }
+                    key = clr;
+                    break;
+
+                case VectorStoreVectorProperty vp:
+                    if (vector is not null)
+                    {
+                        throw new InvalidOperationException(
+                            $"VectorStoreCollectionDefinition 中存在多个 Vector 属性，DotVector.Data 仅支持单向量字段。");
+                    }
+                    vector = clr;
+                    dims = vp.Dimensions;
+                    distance = vp.DistanceFunction;
+                    break;
+
+                case VectorStoreDataProperty ddp:
+                    var storage = string.IsNullOrEmpty(ddp.StorageName) ? ddp.Name : ddp.StorageName;
+                    data.Add((clr, storage));
+                    break;
+            }
+        }
+
+        if (key is null)
+        {
+            throw new InvalidOperationException(
+                "VectorStoreCollectionDefinition 必须包含一个 VectorStoreKeyProperty。");
+        }
+        if (vector is null)
+        {
+            throw new InvalidOperationException(
+                "VectorStoreCollectionDefinition 必须包含一个 VectorStoreVectorProperty。");
+        }
+
+        if (vector.PropertyType == typeof(float[]))
+        {
+            _vectorIsArray = true;
+        }
+        else if (vector.PropertyType == typeof(ReadOnlyMemory<float>))
+        {
+            _vectorIsArray = false;
+        }
+        else
+        {
+            throw new NotSupportedException(
+                $"{t.FullName}.{vector.Name} 的类型 {vector.PropertyType.Name} 不受支持。" +
+                " DotVector.Data 当前仅支持 float[] 与 ReadOnlyMemory<float>。");
+        }
+
+        _keyProperty = key;
+        _vectorProperty = vector;
+        _dataProperties = data.Select(d => d.Prop).ToArray();
+        _dataStorageNames = data.ToDictionary(d => d.Prop.Name, d => d.StorageName, StringComparer.Ordinal);
+        _dataByStorageName = data.ToDictionary(d => d.StorageName, d => d.Prop, StringComparer.Ordinal);
         Dimensions = dims;
         DistanceFunction = distance;
     }
@@ -149,17 +251,7 @@ internal sealed class DotVectorRecordMapper<TKey, TRecord>
     /// <returns>找到对应数据属性返回 <see langword="true"/>。</returns>
     public bool TryGetPayloadFieldName(string propertyName, [NotNullWhen(true)] out string? storageName)
     {
-        for (int i = 0; i < _dataProperties.Length; i++)
-        {
-            var p = _dataProperties[i];
-            if (string.Equals(p.Name, propertyName, StringComparison.Ordinal))
-            {
-                storageName = p.GetCustomAttribute<VectorStoreDataAttribute>()?.StorageName ?? p.Name;
-                return true;
-            }
-        }
-        storageName = null;
-        return false;
+        return _dataStorageNames.TryGetValue(propertyName, out storageName);
     }
 
     /// <summary>从记录中读取向量数据并返回为 <c>float[]</c>。</summary>
@@ -195,7 +287,7 @@ internal sealed class DotVectorRecordMapper<TKey, TRecord>
             }
 
             dict ??= new Dictionary<string, object>(StringComparer.Ordinal);
-            var name = p.GetCustomAttribute<VectorStoreDataAttribute>()?.StorageName ?? p.Name;
+            var name = _dataStorageNames[p.Name];
             dict[name] = v;
         }
 

@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- PR #M7.3：M7.3 — Dynamic Collection / `ListCollectionNames` / `VectorStoreCollectionDefinition`
+  - `src/DotVector.Core/Protocol/ProtocolDtos.cs`：新增 `CollectionInfo`（Name + Dimensions + Metric + RecordCount）DTO
+  - `src/DotVector.Core/IDotVectorClient.cs`：新增 `ListCollectionsAsync(CancellationToken)` 返回 `IReadOnlyList<CollectionInfo>`
+  - `src/DotVector.Data/DotVectorVectorStore.cs`：
+    - 实现 `ListCollectionNamesAsync` —— 通过 `IDotVectorClient.ListCollectionsAsync` 枚举集合名
+    - 实现 `CollectionExistsAsync(name)` —— 改为查询 `ListCollectionsAsync` 的真实结果
+    - `GetCollection<TKey,TRecord>(name, definition)` 现在透传 `definition` 给 `DotVectorCollection<,>`
+    - `GetDynamicCollection(name, definition)` 返回新的 `DotVectorDynamicCollection`
+  - `src/DotVector.Data/Internal/DotVectorRecordMapper.cs`：新增基于 `VectorStoreCollectionDefinition` 的构造函数（不依赖 attribute 反射），并把 payload 字段名映射收敛到 `_dataStorageNames` 字典
+  - `src/DotVector.Data/DotVectorCollection.cs`：
+    - 新增三参构造 `(client, name, VectorStoreCollectionDefinition?)`，按定义构造映射器；原两参构造委托至此
+    - `CollectionExistsAsync` 改为查询 `ListCollectionsAsync`
+  - `src/DotVector.Data/Internal/DotVectorDynamicCollection.cs`（新增）：`VectorStoreCollection<object, Dictionary<string,object?>>` 实现，按定义中的属性名访问字段，支持 Upsert/Delete/Get/Search；LINQ Filter 翻译显式拒绝（动态字典缺少强类型语义，TODO M7+）
+  - `tests/DotVector.Tests/InMemoryDotVectorClient.cs`：新增 `ListCollectionsAsync` 实现
+  - `tests/DotVector.Tests/M7_3_DynamicAndListTests.cs`（新增 8 个测试）：覆盖 `ListCollectionNamesAsync` 全量返回、`CollectionExistsAsync` 创建前后真值变化、动态集合 Upsert/Search/Get/Delete 端到端、缺失键字段抛 `InvalidOperationException`、显式 `VectorStoreCollectionDefinition` 与基于 attribute 的反射映射在搜索结果上等价（参数化 Theory）
+  - `tests/DotVector.Tests/SmokeTests.cs::DotVectorData_AssemblyDoesNotReferenceServerShell` 仍通过 —— 客户端/服务端隔离不变
+  - 全部测试通过（DotVector.Tests 46 通过 0 失败）
+
 ### Changed
 
 - M6 — 标量过滤（Payload Filter）正式标记为 ✅。M6 范围内的 payload 字段、Filter AST、`Collection<TKey>.Search(query, topK, Filter?)` post-filter 重载、`GetPayload(key)` 已交付；B-tree 索引与 payload 持久化已在 M11 完成；"100 万条带过滤搜索 < 100 ms" 验收项显式延期至 M8 BenchmarkDotNet 基准体系。

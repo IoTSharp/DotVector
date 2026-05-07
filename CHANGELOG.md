@@ -8,6 +8,14 @@
 
 ### Added
 
+- PR #M13.3：M13.3 — `OptimizedProductQuantizer`（OPQ）+ 纯托管 one-sided Jacobi SVD
+  - `src/DotVector.Core/Compression/JacobiSvd.cs`（新增）：`internal static` 工具类；`Decompose` 实现一边 Jacobi SVD（双精度内部累加，输出 float），`SolveOrthogonalProcrustes` 解 R = V·U^T 最大化 tr(R·A)；不依赖任何第三方数值库
+  - `src/DotVector.Core/Compression/OptimizedProductQuantizer.cs`（新增）：实现 `IVectorQuantizer`（`Kind=Opq`，`CodeBytes=M`）；持有 D×D 旋转矩阵 R，`Train` 迭代：固定 R 训练 PQ → 编码再解码得到 ŷ → 累加 cross-covariance A = X^T·Ŷ → Procrustes 求新 R；最终再做一次 PQ 训练以保持一致；`Encode/Decode/BuildScorer` 在 R·x 域上委托内部 PQ；`ApplyRotation/ApplyTransposeRotation` 走纯托管 GEMV，`stackalloc` 阈值 1024 floats
+  - `tests/DotVector.Core.Tests/Compression/JacobiSvdTests.cs`（新增 5 个测试）：单位矩阵 / 对角矩阵奇异值恢复 / 随机矩阵重构 + U V 正交性 / Procrustes 输出正交 / Y=Q·X 设定下恢复出 R≈Q
+  - `tests/DotVector.Core.Tests/Compression/OptimizedProductQuantizerTests.cs`（新增 8 个测试）：dim%m / opqIterations 校验 / 未训练时 Encode|Decode|BuildScorer 抛 `InvalidOperationException` / `Kind=Opq` / Train 后 R^T·R≈I / Encode→Decode 形状与有限性 / **ADC 与解码后 L2² 一致性** / Train 重构误差 ≤ 基线 PQ × 1.05
+  - 全量回归：314 个测试通过（baseline 299 + JacobiSvd 5 + OPQ 8 = 312；其余因 OPQ 修订少量重构 +2）
+  - 后续 PR：M13.4（RQ — 多级残差码本）、M13.5（`quantizer.bin` 持久化与索引集成）
+
 - PR #M13.2：M13.2 — `ProductQuantizer` 实现 `IVectorQuantizer` + `IQuantizedScorer` ADC 打分抽象
   - `src/DotVector.Core/Compression/IQuantizedScorer.cs`（新增）：量化打分内核统一接口，遵循 L2 平方距离语义；`Score(ReadOnlySpan<byte>)` 单条编码评分，由 `IVectorQuantizer` 的 `BuildScorer(query)` 创建（持有预计算 LUT，按查询独立实例）
   - `src/DotVector.Core/Compression/ProductQuantizer.cs`（新增）：包装现有 `PqCodebook`，实现 `IVectorQuantizer` 契约（`Kind=Pq`，`CodeBytes=M`），暴露 `Train` / `Encode` / `Decode` / `BuildScorer`；`Decode` 重建为各子空间被选中心的拼接；内部 `PqAdcScorer` 持有 `M × 256` LUT，4 路展开累加，零额外分配；构造参数支持 `maxIterations` 与 `seed`，便于确定性测试

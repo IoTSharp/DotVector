@@ -8,6 +8,12 @@
 
 ### Added
 
+- PR #M13.4：M13.4 — `ResidualQuantizer`（RQ）多级残差码本量化器 + 召回率回归
+  - `src/DotVector.Core/Compression/ResidualQuantizer.cs`（新增）：实现 `IVectorQuantizer`（`Kind=Rq`，`CodeBytes=Levels`，每级 `Ksub=256`）；`Train` 逐级 K-Means（`KMeans.Train`，per-level `seed = baseSeed + level`），训练完一级后用 `TensorPrimitives.Subtract` 在 ArrayPool 残差缓冲上原位扣除，得到下一级训练数据；`Encode` 逐级 `KMeans.FindNearest` + 残差更新，`stackalloc 1024` 阈值之下走栈；`Decode` 累加各级被选中心；`BuildScorer` 返回内部 `RqDecompressScorer`，按 FAISS ST_decompress 风格直接重建向量后用 `TensorPrimitives.SumOfSquares` 计算 L2²，避免 `M*(M-1)/2 * K²` 交叉项 LUT 内存
+  - `tests/DotVector.Core.Tests/Compression/ResidualQuantizerTests.cs`（新增 10 个测试）：构造参数校验 / Encode|Decode|BuildScorer 未训练抛 `InvalidOperationException` / Train 数据不足 K=256 抛 `ArgumentOutOfRangeException` / `Kind=Rq` / Encode→Decode round-trip 形状与有限性 / **更高级数严格降低 MSE**（levels 2 → 4 → 8）/ **ADC 与解码后 L2² 一致性**（容差 `max(1e-2, refScore × 1e-4)`）/ **合成高斯簇 4 级 Recall@10 ≥ 0.80**
+  - 全量回归：324 个测试通过（baseline 314 + RQ 10）
+  - 后续 PR：M13.5（`quantizer.bin` 持久化 + IvfPq/Flat 索引集成 + `FileHeader.Version` 升级）
+
 - PR #M13.3：M13.3 — `OptimizedProductQuantizer`（OPQ）+ 纯托管 one-sided Jacobi SVD
   - `src/DotVector.Core/Compression/JacobiSvd.cs`（新增）：`internal static` 工具类；`Decompose` 实现一边 Jacobi SVD（双精度内部累加，输出 float），`SolveOrthogonalProcrustes` 解 R = V·U^T 最大化 tr(R·A)；不依赖任何第三方数值库
   - `src/DotVector.Core/Compression/OptimizedProductQuantizer.cs`（新增）：实现 `IVectorQuantizer`（`Kind=Opq`，`CodeBytes=M`）；持有 D×D 旋转矩阵 R，`Train` 迭代：固定 R 训练 PQ → 编码再解码得到 ŷ → 累加 cross-covariance A = X^T·Ŷ → Procrustes 求新 R；最终再做一次 PQ 训练以保持一致；`Encode/Decode/BuildScorer` 在 R·x 域上委托内部 PQ；`ApplyRotation/ApplyTransposeRotation` 走纯托管 GEMV，`stackalloc` 阈值 1024 floats

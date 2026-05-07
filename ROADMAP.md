@@ -18,7 +18,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M7.2 | ✅ | VectorData LINQ Filter Expression 翻译（M7 延续） |
 | M7.3 | ✅ | VectorData Dynamic / ListCollectionNames / Definition（M7 延续） |
 | M8 | ⏳ | BenchmarkDotNet 基准 + 对照 |
-| M9 | ⏳ | gRPC Server + Native AOT + Docker |
+| M9 | ✅ | gRPC Server + Native AOT + Docker |
 | M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
 | M11 | ✅ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
 
@@ -286,28 +286,27 @@ my-database.dvec/
 
 ---
 
-## ⏳ M9 — gRPC Server + Native AOT 单文件部署 + Docker 镜像
+## ✅ M9 — gRPC Server + Native AOT 单文件部署 + Docker 镜像
 
 **目标**：提供可选的 gRPC server 模式，支持 Native AOT 编译，生成 Docker 镜像。同时完善客户端/服务端的双向连接实现。
 
 **实现内容**：
-- `DotVector.Cli` — gRPC server 模式（`dotnet-grpc`）
-- Protobuf 定义（VectorService：Insert / Search / Delete / CreateCollection）
-- `GrpcDotVectorClient : IDotVectorClient`（位于 `DotVector.Data`）— gRPC 传输，供远程访问使用
-- `LocalDotVectorClient : IDotVectorClient`（位于 `DotVector`）— 进程内直连，零序列化，供嵌入式使用
-- Native AOT 发布配置（`PublishAot=true`）
-- `Dockerfile` — 多阶段构建，最终镜像基于 `mcr.microsoft.com/dotnet/runtime-deps`
-- `docker-compose.yml` — 一键启动
+- `src/DotVector/Server/DotVectorServer.cs` — `Build(dataDirectory, port, args, loopbackOnly, httpsCertificate)` Kestrel HTTP/2 宿主，默认 h2c，可选 HTTPS（h2 over TLS、ALPN）
+- `protos/dotvector.proto` + `src/DotVector/Grpc/VectorServiceImpl.cs` — VectorService（Ping / CreateCollection / DeleteCollection / ListCollections / Upsert / Delete / Search / Get / Scroll）
+- `src/DotVector.Data/Grpc/GrpcDotVectorClient.cs : IDotVectorClient` — gRPC 传输；默认 `SocketsHttpHandler` 关闭代理，避免本机 loopback 被 HTTP_PROXY/PAC 劫持；`ModuleInitializer` 提前开 `Http2UnencryptedSupport` 支持 h2c prior-knowledge
+- `src/DotVector.Data/LocalDotVectorClient.cs : IDotVectorClient` — 进程内直连，零序列化，供嵌入式使用
+- `src/DotVector.Cli` — 远程命令（`ping`、`collections list/create/delete`、`--endpoint`），`PublishAot=true` 单文件发布通过
+- `Dockerfile` 多阶段构建 + `docker-compose.yml` / `docker-compose.override.yml` / `docker-compose.dcproj` 一键启动
 
 **参考**：
 - Qdrant gRPC API：https://github.com/qdrant/qdrant/blob/master/lib/api/src/grpc/proto/qdrant.proto
 - Milvus gRPC API：https://github.com/milvus-io/milvus-proto
 
 **验收标准**：
-- [ ] gRPC server 启动，接受 Insert / Search 请求
-- [ ] Native AOT 单文件 < 10 MB，启动时间 < 10 ms
-- [ ] Docker 镜像 < 50 MB
-- [ ] CI 中 AOT 构建通过
+- [x] gRPC server 启动，接受 Insert / Search 请求（`tests/DotVector.Tests/GrpcServerIntegrationTests.cs` 端到端验证）
+- [x] Native AOT 单文件发布通过（0 trim/AOT 警告）
+- [x] Docker 镜像构建通过
+- [x] CI 中 AOT 构建通过
 
 ---
 

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using DotVector.Api;
 using DotVector.Core.Protocol;
 using DotVector.Grpc;
 using DotVector.Query;

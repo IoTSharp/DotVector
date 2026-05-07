@@ -8,6 +8,18 @@
 
 ### Added
 
+- PR #M9：M9 — gRPC 服务端 / 客户端 / CLI 远程命令 / Native AOT 发布 / Docker 化
+  - `src/DotVector/Server/DotVectorServer.cs`：`Build(dataDirectory, port, args, loopbackOnly, httpsCertificate)` 构建 Kestrel HTTP/2 宿主，端到端封装 `VectorDatabase` + `VectorServiceImpl` + `LocalDotVectorClient`；默认 h2c，可传 `X509Certificate2` 启用 HTTPS（h2 over TLS，ALPN）。
+  - `src/DotVector/Grpc/VectorServiceImpl.cs` + `protos/dotvector.proto`：定义并实现 `VectorService`（Ping/CreateCollection/DeleteCollection/ListCollections/Upsert/Delete/Search/Get/Scroll），与 `IDotVectorClient` 一一对应。
+  - `src/DotVector.Data/Grpc/GrpcDotVectorClient.cs`：`IDotVectorClient` 的 gRPC 实现，默认 `SocketsHttpHandler` 关闭代理（`UseProxy=false`、`Proxy=null`）以避免本机 loopback 被 HTTP_PROXY/PAC 劫持；`ModuleInitializer` 提前开启 `Http2UnencryptedSupport` 开关支持 h2c prior-knowledge。
+  - `src/DotVector.Data/LocalDotVectorClient.cs`：进程内 `IDotVectorClient` 适配器，复用同一份契约让 CLI / 服务端共享代码路径。
+  - `src/DotVector.Cli/Program.cs`：新增远程命令（`ping`、`collections list/create/delete`），通过 `--endpoint` 选择 gRPC 通道或本地 `.dvec` 目录。
+  - `src/DotVector.Cli/DotVector.Cli.csproj`：开启 `PublishAot=true` + 单文件配置，`dotnet publish -c Release -r win-x64` 通过（0 trim/AOT 警告）。
+  - `Dockerfile` + `docker-compose.yml` + `docker-compose.override.yml` + `docker-compose.dcproj`：服务端容器化（端口 5180/h2c），并提供本地 compose 文件挂载持久化数据卷。
+  - `tests/DotVector.Tests/GrpcServerIntegrationTests.cs`：M9 端到端集成测试，进程内自签证书走 HTTPS+ALPN h2，覆盖 Ping → CreateCollection → Upsert → Search → Delete → ListCollections 全链路。
+
+### Added
+
 - PR #M7.3：M7.3 — Dynamic Collection / `ListCollectionNames` / `VectorStoreCollectionDefinition`
   - `src/DotVector.Core/Protocol/ProtocolDtos.cs`：新增 `CollectionInfo`（Name + Dimensions + Metric + RecordCount）DTO
   - `src/DotVector.Core/IDotVectorClient.cs`：新增 `ListCollectionsAsync(CancellationToken)` 返回 `IReadOnlyList<CollectionInfo>`

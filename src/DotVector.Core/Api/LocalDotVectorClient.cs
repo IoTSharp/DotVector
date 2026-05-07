@@ -6,7 +6,7 @@ using DotVector.IO;
 using DotVector.Model;
 using DotVector.Query;
 
-namespace DotVector.Server;
+namespace DotVector.Api;
 
 /// <summary>
 /// 直接包装 <see cref="VectorDatabase"/> 的进程内 <see cref="IDotVectorClient"/> 实现（M9）。

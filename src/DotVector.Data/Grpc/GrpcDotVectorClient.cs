@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using DotVector.Core;
 using DotVector.Core.Protocol;
@@ -18,6 +21,25 @@ namespace DotVector.Data.Grpc;
 /// </remarks>
 public sealed class GrpcDotVectorClient : IDotVectorClient
 {
+#pragma warning disable CA2255
+    /// <summary>
+    /// 模块初始化：尽早开启明文 HTTP/2（h2c）支持开关。
+    /// </summary>
+    /// <remarks>
+    /// SocketsHttpHandler 在首次实例化时缓存
+    /// <c>System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport</c> 开关的值。
+    /// 即使在 .NET 10 上，<see cref="HttpVersionPolicy.RequestVersionExact"/> + http:// 仍会
+    /// 因该开关为 <c>false</c> 而抛出 "unable to establish HTTP/2 connection"。本类型作为
+    /// gRPC 客户端 SDK 的入口，使用 <c>ModuleInitializer</c> 在程序集加载时即开启，
+    /// 早于任何 HttpClient / GrpcChannel 创建。CA2255 仅是一般性建议，本场景必要且可控。
+    /// </remarks>
+    [ModuleInitializer]
+    internal static void EnableHttp2Cleartext()
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+    }
+#pragma warning restore CA2255
+
     private readonly GrpcChannel _channel;
     private readonly bool _ownsChannel;
     private readonly VectorService.VectorServiceClient _client;
@@ -30,7 +52,27 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     public GrpcDotVectorClient(Uri address, GrpcChannelOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(address);
-        _channel = options is null ? GrpcChannel.ForAddress(address) : GrpcChannel.ForAddress(address, options);
+
+        if (options is null)
+        {
+            // 显式构造 SocketsHttpHandler：
+            // 1. EnableMultipleHttp2Connections 提升并发；
+            // 2. 关闭代理 —— 开发机/CI 的系统代理（HTTP_PROXY、HTTPS_PROXY 或 PAC）
+            //    常会把本地 loopback 请求也劫持，导致 gRPC 子通道连接失败
+            //    （表现为 "Unable to get subchannel from HttpRequestMessage"）。
+            //    DotVector 的 gRPC 流量通常是点对点（本机或同 VPC），不需要代理。
+            options = new GrpcChannelOptions
+            {
+                HttpHandler = new SocketsHttpHandler
+                {
+                    EnableMultipleHttp2Connections = true,
+                    UseProxy = false,
+                    Proxy = null,
+                },
+            };
+        }
+
+        _channel = GrpcChannel.ForAddress(address, options);
         _ownsChannel = true;
         _client = new VectorService.VectorServiceClient(_channel);
     }

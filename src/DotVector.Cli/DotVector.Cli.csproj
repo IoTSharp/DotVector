@@ -6,6 +6,18 @@
     <RootNamespace>DotVector.Cli</RootNamespace>
   </PropertyGroup>
 
+  <!--
+    Native AOT 单文件发布配置（M9）。
+    用法：dotnet publish src/DotVector.Cli -c Release -r linux-x64
+    Debug 配置下不启用 AOT，避免拖慢日常构建。
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TrimMode>full</TrimMode>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+
   <ItemGroup>
     <!--
       CLI 仅引用客户端 SDK（DotVector.Data），同时支持：

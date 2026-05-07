@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <AssemblyName>DotVector</AssemblyName>
@@ -6,12 +6,23 @@
     <!--
       DotVector 服务端宿主：托管多个嵌入式数据库实例（DotVector.Core）。
       每个目录 = 一个 DotVector.Core 实例；多个数据库 = 多个 Core 实例。
-      M9 起将在此实现 gRPC 端点、进程托管、生命周期管理。
+      M9 起在此实现 gRPC 端点、进程托管、生命周期管理。
     -->
+    <!-- Web SDK 默认 OutputType=Exe；本程序集供 Cli 引用并启动，无需独立运行入口。 -->
+    <OutputType>Library</OutputType>
+    <NoDefaultLaunchSettingsFile>true</NoDefaultLaunchSettingsFile>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DotVector.Core\DotVector.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="..\..\protos\dotvector.proto" GrpcServices="Server" Link="Protos\dotvector.proto" />
   </ItemGroup>
 
   <ItemGroup>

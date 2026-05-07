@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package dotvector.v1;
+
+option csharp_namespace = "DotVector.Grpc";
+
+// ============================================================================
+// DotVector gRPC API (M9)
+//
+// Wire 形态约定：
+//   - vectors 使用 packed bytes (float32 little-endian)，避免 repeated float 在
+//     大维度场景下的 length-prefix 开销，并对 SIMD 解码友好。
+//   - filter 使用 FilterCodec 序列化的 bytes（不展开为递归 message），可与本机
+//     codec 对称且对 AOT 友好。
+//   - payload 使用 map<string, ScalarValue>，每个值是 oneof 标量，避免 google.protobuf.Any。
+//   - 所有主键以 string id 形式传输；服务端按集合的 KeyType 解析为 int/long/Guid/string。
+// ============================================================================
+
+service VectorService {
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+  rpc DeleteCollection(DeleteCollectionRequest) returns (DeleteCollectionResponse);
+  rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+
+  rpc Upsert(UpsertRequest) returns (UpsertResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Scroll(ScrollRequest) returns (ScrollResponse);
+}
+
+// ----------------------------------------------------------------------------
+// Common
+// ----------------------------------------------------------------------------
+
+message ScalarValue {
+  oneof value {
+    bool   bool_value   = 1;
+    sint64 int_value    = 2;
+    double double_value = 3;
+    string string_value = 4;
+  }
+}
+
+message UpsertRecord {
+  string id = 1;
+  // float32 little-endian packed (length must equal collection.dimensions * 4)
+  bytes vector = 2;
+  map<string, ScalarValue> payload = 3;
+}
+
+message VectorRecord {
+  string id = 1;
+  bytes vector = 2;                // 可选：当 include_vector=true 时填充
+  map<string, ScalarValue> payload = 3;
+}
+
+message ScoredRecord {
+  string id = 1;
+  float score = 2;
+  bytes vector = 3;                // 可选
+  map<string, ScalarValue> payload = 4;
+}
+
+message CollectionInfo {
+  string name = 1;
+  int32 dimensions = 2;
+  string metric = 3;               // "L2" | "Cosine" | "InnerProduct" | "Hamming" | "DotProduct"
+  int64 record_count = 4;
+}
+
+// ----------------------------------------------------------------------------
+// RPC payloads
+// ----------------------------------------------------------------------------
+
+message PingRequest {}
+message PingResponse { bool ok = 1; }
+
+message CreateCollectionRequest {
+  string name = 1;
+  int32 dimensions = 2;
+  string metric = 3;
+}
+message CreateCollectionResponse {}
+
+message DeleteCollectionRequest { string name = 1; }
+message DeleteCollectionResponse {}
+
+message ListCollectionsRequest {}
+message ListCollectionsResponse { repeated CollectionInfo collections = 1; }
+
+message UpsertRequest {
+  string collection = 1;
+  repeated UpsertRecord records = 2;
+}
+message UpsertResponse { int32 count = 1; }
+
+message DeleteRequest {
+  string collection = 1;
+  repeated string ids = 2;
+}
+message DeleteResponse { int32 count = 1; }
+
+message SearchRequest {
+  string collection = 1;
+  bytes query_vector = 2;          // float32 LE packed
+  int32 top_k = 3;
+  bool include_vector = 4;
+  bytes filter = 5;                // 可空，FilterCodec 编码
+}
+message SearchResponse { repeated ScoredRecord hits = 1; }
+
+message GetRequest {
+  string collection = 1;
+  repeated string ids = 2;
+  bool include_vector = 3;
+}
+message GetResponse { repeated VectorRecord records = 1; }
+
+message ScrollRequest {
+  string collection = 1;
+  int32 top = 2;
+  bool include_vector = 3;
+  bytes filter = 4;                // FilterCodec 编码（必填）
+}
+message ScrollResponse { repeated VectorRecord records = 1; }

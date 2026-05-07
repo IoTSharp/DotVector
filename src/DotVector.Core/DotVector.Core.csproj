@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotVector" />
+    <InternalsVisibleTo Include="DotVector.Data" />
     <InternalsVisibleTo Include="DotVector.Cli" />
     <InternalsVisibleTo Include="DotVector.Core.Tests" />
     <InternalsVisibleTo Include="DotVector.Tests" />

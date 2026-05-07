@@ -201,6 +201,35 @@ public sealed class VectorDatabase : IDisposable
     public int CollectionCount => _collections.Count;
 
     /// <summary>
+    /// 返回当前所有已注册集合实例的快照（按集合名升序）。仅供本程序集与 InternalsVisibleTo 受信项目使用。
+    /// </summary>
+    /// <remarks>
+    /// 主要用于 M9 <c>LocalDotVectorClient</c> / 协议层在不知道 <c>TKey</c> 的情况下枚举集合元数据。
+    /// </remarks>
+    internal IReadOnlyList<IDisposable> EnumerateCollections()
+    {
+        var list = new List<KeyValuePair<string, IDisposable>>(_collections);
+        list.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+        var result = new IDisposable[list.Count];
+        for (int i = 0; i < list.Count; i++) result[i] = list[i].Value;
+        return result;
+    }
+
+    /// <summary>
+    /// 尝试按名称获取集合实例（运行时类型），不暴露 <c>TKey</c>。
+    /// </summary>
+    internal bool TryGetUntyped(string name, out IDisposable collection)
+    {
+        if (_collections.TryGetValue(name, out IDisposable? entry))
+        {
+            collection = entry;
+            return true;
+        }
+        collection = null!;
+        return false;
+    }
+
+    /// <summary>
     /// 创建新的向量集合。
     /// </summary>
     /// <typeparam name="TKey">记录主键类型。</typeparam>

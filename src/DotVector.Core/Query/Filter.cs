@@ -34,6 +34,13 @@ public abstract class Filter
     /// </summary>
     internal virtual object? GetIntrospection() => null;
 
+    /// <summary>
+    /// 内部序列化钩子（M9 — gRPC Filter 传输）。把当前节点写入二进制流。
+    /// 默认抛出，外部自定义子类不可序列化。
+    /// </summary>
+    internal virtual void WriteTo(System.IO.BinaryWriter writer)
+        => throw new NotSupportedException($"Filter 子类型 {GetType().FullName} 不支持序列化。");
+
     /// <summary>构造字段相等过滤：<c>payload[field] == value</c>。</summary>
     public static Filter Eq(string field, object? value)
     {
@@ -152,6 +159,12 @@ public abstract class Filter
         }
         internal override object? GetIntrospection()
             => _value is null ? null : new FilterIntrospection.EqualsView(_field, _value);
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.Eq);
+            w.Write(_field);
+            FilterCodec.WriteValue(w, _value);
+        }
     }
 
     private sealed class FieldNotEqualsFilter : Filter
@@ -167,6 +180,12 @@ public abstract class Filter
                 return _value is not null;
             }
             return !Equals(actual, _value);
+        }
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.Ne);
+            w.Write(_field);
+            FilterCodec.WriteValue(w, _value);
         }
     }
 
@@ -206,6 +225,15 @@ public abstract class Filter
         }
         internal override object? GetIntrospection()
             => new FilterIntrospection.RangeView(_field, _min, _max, _minInclusive, _maxInclusive);
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.Range);
+            w.Write(_field);
+            FilterCodec.WriteValue(w, _min);
+            FilterCodec.WriteValue(w, _max);
+            w.Write(_minInclusive);
+            w.Write(_maxInclusive);
+        }
     }
 
     private sealed class FieldExistsFilter : Filter
@@ -216,6 +244,11 @@ public abstract class Filter
             => payload is not null
                && payload.TryGetValue(_field, out object? v)
                && v is not null;
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.Exists);
+            w.Write(_field);
+        }
     }
 
     private sealed class FieldMissingFilter : Filter
@@ -226,6 +259,11 @@ public abstract class Filter
         {
             if (payload is null) return true;
             return !payload.TryGetValue(_field, out object? v) || v is null;
+        }
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.Missing);
+            w.Write(_field);
         }
     }
 
@@ -242,6 +280,12 @@ public abstract class Filter
             return true;
         }
         internal override object? GetIntrospection() => new FilterIntrospection.AndView(_filters);
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.And);
+            w.Write((byte)_filters.Length);
+            for (int i = 0; i < _filters.Length; i++) _filters[i].WriteTo(w);
+        }
     }
 
     private sealed class OrFilter : Filter
@@ -256,6 +300,12 @@ public abstract class Filter
             }
             return false;
         }
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.Or);
+            w.Write((byte)_filters.Length);
+            for (int i = 0; i < _filters.Length; i++) _filters[i].WriteTo(w);
+        }
     }
 
     private sealed class NotFilter : Filter
@@ -264,5 +314,10 @@ public abstract class Filter
         public NotFilter(Filter inner) { _inner = inner; }
         public override bool Matches(IReadOnlyDictionary<string, object?>? payload)
             => !_inner.Matches(payload);
+        internal override void WriteTo(System.IO.BinaryWriter w)
+        {
+            w.Write((byte)FilterCodec.Tag.Not);
+            _inner.WriteTo(w);
+        }
     }
 }

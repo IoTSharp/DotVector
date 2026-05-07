@@ -1,20 +1,47 @@
 using DotVector.Api;
+using DotVector.Grpc;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace DotVector.Server;
 
 /// <summary>
-/// DotVector 服务端宿主：在一个进程内托管多个嵌入式 <see cref="VectorDatabase"/> 实例。
-/// 每个目录对应一个 <see cref="VectorDatabase"/>（即 DotVector.Core 的一次"打开"），
-/// 多个数据库 ⇒ 多个 <see cref="VectorDatabase"/> 实例。
+/// DotVector 服务端宿主：在一个进程内托管一个或多个嵌入式 <see cref="VectorDatabase"/> 实例，
+/// 并通过 gRPC（HTTP/2）暴露 <see cref="VectorService"/> 端点。
 /// </summary>
-/// <remarks>
-/// TODO(M9): 此处将增加 gRPC 端点、生命周期管理、按目录路径动态打开 / 卸载数据库等能力。
-/// 在 M0~M8 阶段，所有功能均通过嵌入式 <see cref="VectorDatabase"/> 直接调用即可。
-/// </remarks>
-public sealed class DotVectorServer
+public static class DotVectorServer
 {
-    private DotVectorServer()
+    /// <summary>
+    /// 使用指定数据目录与端口构建 gRPC 宿主 <see cref="WebApplication"/>。
+    /// </summary>
+    /// <param name="dataDirectory">数据库根目录，对应一个 <c>.dvec</c> 实例。</param>
+    /// <param name="port">gRPC 监听端口，默认 5180。</param>
+    /// <param name="args">可选的命令行参数（透传给 <see cref="WebApplication.CreateBuilder(string[])"/>）。</param>
+    /// <returns>已配置但尚未启动的 <see cref="WebApplication"/>。调用者负责 <c>RunAsync</c> / <c>StartAsync</c>。</returns>
+    public static WebApplication Build(string dataDirectory, int port = 5180, string[]? args = null)
     {
-        // 占位：阻止外部实例化，等 M9 引入 Builder/Options 后开放。
+        ArgumentException.ThrowIfNullOrEmpty(dataDirectory);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(port);
+
+        WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args ?? []);
+
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.ListenAnyIP(port, listen => listen.Protocols = HttpProtocols.Http2);
+        });
+
+        var database = new VectorDatabase(dataDirectory);
+        builder.Services.AddSingleton(database);
+        builder.Services.AddSingleton(sp => new LocalDotVectorClient(sp.GetRequiredService<VectorDatabase>(), ownsDatabase: false));
+        builder.Services.AddSingleton<VectorServiceImpl>();
+        builder.Services.AddGrpc();
+
+        WebApplication app = builder.Build();
+        app.MapGrpcService<VectorServiceImpl>();
+        app.Lifetime.ApplicationStopped.Register(() => database.Dispose());
+        return app;
     }
 }

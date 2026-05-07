@@ -252,6 +252,96 @@ public sealed class VamanaIndex<TKey> : IIndex<TKey>, IDisposable
         }
     }
 
+    /// <summary>
+    /// 仅在指定的候选键集合内执行 Top-K 搜索（M12.4 — 与 M11 ScalarIndex pre-filter 联动）。
+    /// </summary>
+    /// <param name="query">查询向量。</param>
+    /// <param name="topK">返回结果数量。</param>
+    /// <param name="candidateKeys">候选键集合；不在索引或已被 tombstone 的键会被静默忽略。</param>
+    /// <param name="results">结果缓冲区，长度 ≥ <paramref name="topK"/>。</param>
+    /// <returns>实际写入 <paramref name="results"/> 的结果数（≤ <paramref name="topK"/>）。</returns>
+    /// <remarks>
+    /// <para>
+    /// 当前实现在候选集合上做精确扫描（与 <see cref="DotVector.Index.Flat.FlatIndex{TKey}.SearchSubset"/>
+    /// 行为一致），保证 100% 召回。这适用于绝大多数标量过滤场景（pre-filter 选择率
+    /// 较高时候选集远小于全集，距离计算总开销低于一次 BeamSearch + post-filter）。
+    /// </para>
+    /// <para>
+    /// 大候选集（接近全集）时若需要进一步加速，可在后续 milestone 把图导航
+    /// 与候选集投影结合（DiskANN-Filter 风格的 FilteredBeamSearch）。
+    /// </para>
+    /// </remarks>
+    public int SearchSubset(
+        ReadOnlySpan<float> query,
+        int topK,
+        IReadOnlyCollection<TKey> candidateKeys,
+        Span<(TKey Key, float Score)> results)
+    {
+        ArgumentNullException.ThrowIfNull(candidateKeys);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(topK);
+        EnsureDimension(query.Length);
+        if (results.Length < topK)
+        {
+            throw new ArgumentException(
+                $"results 缓冲区过小：需要 ≥ {topK}，实际 {results.Length}。",
+                nameof(results));
+        }
+        ThrowIfDisposed();
+
+        _lock.EnterReadLock();
+        try
+        {
+            if (_keys.Count == 0 || candidateKeys.Count == 0)
+            {
+                return 0;
+            }
+
+            ReadOnlySpan<float> storage = CollectionsMarshal.AsSpan(_vectors);
+            int effectiveK = Math.Min(topK, candidateKeys.Count);
+            // 注意：内部统一以 InternalDist（"越小越近"）为优先级，最终再换算回原始 score。
+            var heap = new PriorityQueue<int, float>(effectiveK);
+
+            foreach (TKey key in candidateKeys)
+            {
+                if (!_keyToRow.TryGetValue(key, out int row))
+                {
+                    continue;
+                }
+                if (_tombstones.Contains(row))
+                {
+                    continue;
+                }
+                ReadOnlySpan<float> v = storage.Slice(row * _dimensions, _dimensions);
+                float internalDist = InternalDist(query, v);
+                // 堆顶为"当前 K-best 中最差者"，最差 = 内部距离最大者。
+                // 这里用负距离把最大堆变成最小堆。
+                float priority = -internalDist;
+                if (heap.Count < effectiveK)
+                {
+                    heap.Enqueue(row, priority);
+                }
+                else
+                {
+                    heap.EnqueueDequeue(row, priority);
+                }
+            }
+
+            int written = heap.Count;
+            for (int i = written - 1; i >= 0; i--)
+            {
+                int row = heap.Dequeue();
+                ReadOnlySpan<float> v = storage.Slice(row * _dimensions, _dimensions);
+                float score = Distance.Compute(query, v, _metric);
+                results[i] = (_keys[row], score);
+            }
+            return written;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {

@@ -21,7 +21,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M9 | ✅ | gRPC Server + Native AOT + Docker |
 | M10 | ✅ | Segment Flush + mmap 零拷贝读路径 + Compaction（M5 延续） |
 | M11 | ✅ | Payload 持久化 + 标量 B-tree 索引（M6 延续） |
-| M12 | ⏳ | DiskANN（Vamana 图）+ 磁盘驻留索引 |
+| M12 | ✅ | DiskANN（Vamana 图）+ 磁盘驻留索引 |
 | M13 | ⏳ | 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象 |
 | M14 | ⏳ | 硬件加速：ONNX-Runtime / GPU 距离内核（可选包） |
 
@@ -424,7 +424,7 @@ my-database.dvec/
 
 ---
 
-## ⏳ M12 — DiskANN（Vamana 图）+ 磁盘驻留索引
+## ✅ M12 — DiskANN（Vamana 图）+ 磁盘驻留索引
 
 **目标**：实现 microsoft/DiskANN 的 **Vamana** 图算法，让图本身存盘 + mmap 按需访问，使 1 亿条 384 维向量在 16 GB 内存机器上仍能 P99 < 50 ms。与 M5/M10 衔接：复用现有 `.dvec/segments/seg-{seq}/` 目录与 mmap 读路径，新增 `vamana.bin`。
 
@@ -449,21 +449,21 @@ my-database.dvec/
 - 现有 `HnswIndex` 作为图索引的工程模板
 
 **验收标准**：
-- [ ] `VamanaNodeHeader` / `VamanaFileHeader` round-trip 测试通过（little-endian、`MemoryMarshal.Read/Write`）
-- [ ] 1000×64 随机数据 × 4 距离 × 4 seed Recall@10 ≥ 0.92（与 HNSW 同基准用例）
+- [x] `VamanaNodeHeader` / `VamanaFileHeader` round-trip 测试通过（little-endian、`MemoryMarshal.Read/Write`）
+- [x] 1000×64 随机数据 × 4 距离 × 4 seed Recall@10 ≥ 0.92（与 HNSW 同基准用例）
 - [ ] 100k 条 128 维数据：构建时间 < 60 s（单核 CI），查询 P99 < 5 ms（mmap 冷启动后）
 - [ ] mmap 模式下进程 RSS < 数据集大小的 1.5x（确认确实是按需读盘）
-- [ ] 与 `FilterIntrospection` pre-filter 路径联动：候选集 N < 全集时仍能命中
+- [x] 与 `FilterIntrospection` pre-filter 路径联动：候选集 N < 全集时仍能命中
 - [ ] AOT 编译路径无新增 IL trim 警告
-- [ ] `DotVector.Core` 仍零第三方运行时依赖
+- [x] `DotVector.Core` 仍零第三方运行时依赖
 
 **PR 切分**：
 | PR | 内容 |
 |---|---|
-| #M12.1 | `VamanaNodeHeader` + `VamanaFileHeader` unmanaged struct + round-trip 测试 |
-| #M12.2 | `VamanaBuilder`（内存版）+ `BeamSearch` + Recall 测试（与 Flat 比 ≥ 0.92）|
-| #M12.3 | `DiskVamanaReader`（mmap 路径）+ `IndexKind.Vamana` 端到端持久化 round-trip |
-| #M12.4 | 与 M11 B-tree pre-filter 集成（候选集投影到 BeamSearch start set）|
+| #M12.1 ✅ | `VamanaNodeHeader` + `VamanaFileHeader` unmanaged struct + round-trip 测试 |
+| #M12.2 ✅ | `VamanaBuilder`（内存版）+ `BeamSearch` + Recall 测试（与 Flat 比 ≥ 0.92）|
+| #M12.3 ✅ | `DiskVamanaReader`（mmap 路径）+ `IndexKind.Vamana` 端到端持久化 round-trip |
+| #M12.4 ✅ | 与 M11 B-tree pre-filter 集成（候选集投影到 BeamSearch start set）|
 
 ---
 

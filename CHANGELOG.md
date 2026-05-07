@@ -8,6 +8,13 @@
 
 ### Added
 
+- PR #M12.4：M12.4 — Vamana 索引与 M11 ScalarIndex pre-filter 集成
+  - `src/DotVector.Core/Index/DiskAnn/VamanaIndex.cs`：新增 `SearchSubset(query, topK, candidateKeys, results)`，在 ScalarIndex 解析出的候选键集合上做精确扫描（mirrors `FlatIndex<TKey>.SearchSubset`），保证子集上 100% 召回；候选集为空 / 全部命中 tombstone 时返回 0；`Hamming` 度量隐式继承 `Search` 的拒绝行为；XML 注释中说明 DiskANN-Filter 风格的 FilteredBeamSearch 留待后续 milestone
+  - `src/DotVector.Core/Api/Collection.cs`：`Search` 的过滤下推路径同时支持 `FlatIndex<TKey>` 与 `VamanaIndex<TKey>`；当 `ScalarIndex.TryResolveCandidates(filter, ...)` 返回完整候选集时，统一通过 `ArrayPool` 缓冲走 `SearchSubset` 路径，再用 `Filter.Matches` 做兜底校验；候选集为空时短路返回
+  - `tests/DotVector.Core.Tests/Index/DiskAnn/VamanaSubsetSearchTests.cs`（新增 5 个测试）：空候选集 / 未知键被忽略 / tombstone 行被跳过 / 在候选集上 ground-truth Top-K 完全命中（L2 / Cosine / InnerProduct）/ 缓冲区过小抛 `ArgumentException`
+  - `tests/DotVector.Core.Tests/Query/VamanaFilterIntegrationTests.cs`（新增 4 个测试）：`Collection.Search` 在 Vamana 集合上分别走 `Filter.Eq` / 空候选集 / `Filter.And(Eq, Range)` 路径；与 Flat 集合在同一 `Filter.Eq("tag", "A")` + 同一查询下结果完全一致
+  - 全量回归：279 个测试通过（Core 211 + Tests 47 + Accuracy 21）
+
 - PR #M12.3：M12.3 — Vamana / DiskANN mmap 磁盘持久化
   - `src/DotVector.Core/Index/DiskAnn/VamanaGraphIO.cs`（新增）：纯 safe 的 `vamana.bin` 读写器
     - `Write(path, dimensions, metric, options, entryPoint, neighbors, tombstones)`：原子 tmp + `File.Move`，固定大小节点条目（`8 + 4*MaxDegree`），空槽位用 `EmptySlot=0xFFFFFFFF` 填充

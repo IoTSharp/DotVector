@@ -378,8 +378,10 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         }
         ThrowIfDisposed();
 
-        // M11：尝试通过 ScalarIndex 把过滤下推为候选键集合，并直接在 FlatIndex 上做 SearchSubset。
-        if (filter is not null && _index is FlatIndex<TKey> flatIndex)
+        // M11/M12.4：尝试通过 ScalarIndex 把过滤下推为候选键集合，再在底层索引上做 SearchSubset。
+        // 当前支持的索引：FlatIndex（M11）与 VamanaIndex（M12.4）。
+        if (filter is not null
+            && (_index is FlatIndex<TKey> || _index is DotVector.Index.DiskAnn.VamanaIndex<TKey>))
         {
             if (_scalarIndex.TryResolveCandidates(filter, out HashSet<TKey>? candidates) && candidates is not null)
             {
@@ -393,7 +395,12 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
                 (TKey Key, float Score)[] subsetBuffer = subsetPool.Rent(subsetFetch);
                 try
                 {
-                    int subsetWritten = flatIndex.SearchSubset(query, subsetFetch, candidates, subsetBuffer.AsSpan(0, subsetFetch));
+                    int subsetWritten = _index switch
+                    {
+                        FlatIndex<TKey> fi => fi.SearchSubset(query, subsetFetch, candidates, subsetBuffer.AsSpan(0, subsetFetch)),
+                        DotVector.Index.DiskAnn.VamanaIndex<TKey> vi => vi.SearchSubset(query, subsetFetch, candidates, subsetBuffer.AsSpan(0, subsetFetch)),
+                        _ => 0,
+                    };
                     if (subsetWritten == 0)
                     {
                         return Array.Empty<SearchResult<TKey>>();

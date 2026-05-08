@@ -246,6 +246,7 @@ jobs:
           mkdir -p artifacts/release/connectors/c/native
           dotnet publish connectors/c/native/DotVector.Native/DotVector.Native.csproj \
             --configuration Release \
+            --runtime linux-x64 \
             --output artifacts/release/connectors/c/native/DotVector.Native \
             -p:Version=${{ needs.metadata.outputs.version }} \
             -p:PackageVersion=${{ needs.metadata.outputs.version }} \

@@ -397,6 +397,10 @@
   - `tests/DotVector.Tests/CollectionTests.cs`：8 个 Collection / VectorDatabase 集成测试（注册冲突、TKey 错配、Dispose 释放、并发读 Top-1 一致）
   - `tests/DotVector.Accuracy.Tests/FlatRecallTests.cs`：1000×64 随机数据集 × 4 种距离的 Recall@10 = 1.0 精确性回归
 
+### Fixed
+
+- 修复 Release 资产打包中 C NativeAOT connector publish 未传入 RuntimeIdentifier 导致 GitHub Release 发布失败的问题。
+
 ### Changed
 
 - 项目分工调整：`src/DotVector.Core` 升级为完整的嵌入式向量数据库实现（一次"打开"即对应一个数据库目录）；`src/DotVector` 改为服务器壳（M9 进程内托管多个 `VectorDatabase` 实例，每个目录一个实例）

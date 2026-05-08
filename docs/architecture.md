@@ -10,26 +10,26 @@
 graph LR
     subgraph Client["客户端（用户应用）"]
         APP["用户应用\n(ASP.NET Core / SK / MAUI)"]
-        DATA["DotVector.Data\n(IVectorStore 适配层)"]
+        DATA["DotVector.Data\n(客户端 SDK + VectorData 适配)"]
+        VDATA["DotVector.VectorData\n(独立 VectorData 适配项目)"]
         CLI2["DotVector.Cli\n(gRPC 客户端模式)"]
     end
 
     subgraph Contract["共享契约层"]
-        CORE["DotVector.Core\n(IDotVectorClient\nIIndex / IStorage\nProtocol DTOs)"]
+        CORE["DotVector.Core\n(VectorDatabase\nIDotVectorClient\nIIndex / IStorage\nProtocol DTOs)"]
     end
 
     subgraph Server["服务端"]
-        SRV["DotVector\n(服务器实现)"]
-        CLI["DotVector.Cli\n(gRPC server / 嵌入式)"]
+        SRV["DotVector\n(gRPC server host)"]
     end
 
     APP --> DATA
+    APP --> VDATA
     APP --> CLI2
     DATA --> CORE
+    VDATA --> DATA
     CLI2 --> CORE
     SRV --> CORE
-    CLI --> SRV
-    CLI --> CORE
 
     style Contract fill:#ffe,stroke:#cc0
     style Client fill:#eff,stroke:#0cc
@@ -122,10 +122,13 @@ graph TD
 
 ### 共享契约层（`src/DotVector.Core/`）
 
-所有跨越客户端/服务端边界的类型都在此定义。
+嵌入式数据库引擎与跨客户端/服务端边界的协议类型都在此定义。
 
 | 类型 | 职责 |
 |------|------|
+| `VectorDatabase` | 嵌入式数据库实例，一个实例对应一个内存数据库或 `.dvec/` 目录 |
+| `Collection<TKey>` | 单个集合，封装索引、payload、过滤、flush 与恢复 |
+| `LocalDotVectorClient` | 实现 `IDotVectorClient`，进程内直接调用 `VectorDatabase`，供嵌入式和服务端委托使用 |
 | `IDotVectorClient` | 客户端协议抽象，定义所有操作契约（Create / Upsert / Delete / Search / Ping） |
 | `IIndex<TKey>` | 向量索引抽象（服务端内部） |
 | `IStorage` | 持久化存储抽象（服务端内部） |
@@ -134,7 +137,7 @@ graph TD
 
 ### 客户端适配层（`src/DotVector.Data/`）
 
-实现 `Microsoft.Extensions.VectorData.Abstractions` 接口，通过 `IDotVectorClient` 与服务端通信（M7）。
+发布用客户端 SDK。提供高层 `DotVectorClient`、`GrpcDotVectorClient`、嵌入式工厂，以及 `Microsoft.Extensions.VectorData.Abstractions` 适配（M7）。
 
 **不引用** `DotVector`（服务端）程序集。
 
@@ -144,21 +147,24 @@ DotVector.Data
 DotVector.Core（IDotVectorClient + Protocol DTOs）
     ↑ 实现（运行时注入）
 GrpcDotVectorClient（M9，位于 DotVector.Data）
-LocalDotVectorClient（M9，位于 DotVector，供进程内嵌入式使用）
+LocalDotVectorClient（M9，位于 DotVector.Core，供进程内嵌入式使用）
 ```
 
-### API 层（`src/DotVector/Api/`）
+### 独立 VectorData 适配（`src/DotVector.VectorData/`）
 
-服务端对外暴露的 API，是嵌入式使用的入口点。
+保留的独立 VectorData 适配项目，源码与 `DotVector.Data` 适配层保持接近，用于兼容演进和未来拆分。当前主要发布门面是 `DotVector.Data`。
+
+### 服务端宿主（`src/DotVector/`）
+
+独立可执行的 gRPC 服务端壳。它托管多个 `DotVector.Core.VectorDatabase` 实例，每个数据库对应一个 `.dvec/` 目录，并通过 gRPC 暴露远程访问能力。
 
 | 类型 | 职责 |
 |------|------|
-| `VectorDatabase` | 数据库实例，管理多个 Collection |
-| `Collection<TKey>` | 单个向量集合，封装索引 + 存储 |
-| `SearchResult<TKey>` | 单条搜索结果（Key、Score、Payload） |
-| `LocalDotVectorClient`（M9） | 实现 `IDotVectorClient`，进程内直接调用 VectorDatabase，零序列化开销 |
+| `DotVectorServer` | 构建 Kestrel HTTP/2 gRPC 宿主 |
+| `VectorServiceImpl` | Protobuf/gRPC DTO 与 Core 协议 DTO 的转换层 |
+| `DotVectorDatabaseRegistry` | 根据 database selector 维护多个本地数据库实例 |
 
-### 索引层（`src/DotVector/Index/`）
+### 索引层（`src/DotVector.Core/Index/`）
 
 | 索引 | Milestone | 算法 |
 |------|-----------|------|
@@ -166,19 +172,25 @@ LocalDotVectorClient（M9，位于 DotVector，供进程内嵌入式使用）
 | `HnswIndex<TKey>` | M3 | HNSW 图（近似） |
 | `IvfFlatIndex<TKey>` | M4 | IVF 倒排文件（近似） |
 | `IvfPqIndex<TKey>` | M4 | IVF + 乘积量化（压缩） |
+| `VamanaIndex<TKey>` | M12 | DiskANN / Vamana 单层图 |
 
-### 计算层（`src/DotVector/Compute/`）
+### 计算层（`src/DotVector.Core/Compute/`）
 
-所有距离函数的 SIMD 加速实现，基于 `TensorPrimitives` 与 `Vector512<T>`。纯函数设计，无 IO 和状态。
+所有距离函数的 SIMD 加速实现，基于 `TensorPrimitives` 与 `Vector<T>` / `Vector512<T>`。同时保留 `IBatchScorer` 注入点，CE 默认实现为 `CpuTensorPrimitivesScorer`。
 
-### 存储层（`src/DotVector/Storage/` + `Wal/`）
+### 存储层（`src/DotVector.Core/Storage/` + `Wal/`）
 
 负责数据持久化（M5 后启用）：
 - `MemTable` — 内存写缓冲，写满后 flush 到 Segment
 - `WalWriter/WalReader` — 崩溃安全的预写日志
 - `SegmentWriter/Reader` — 不可变数据段，基于 mmap
+- `ScalarIndex` / `PayloadCodec` — payload 持久化与标量过滤下推（M11）
 
-### 格式层（`src/DotVector/Format/`）
+### 量化层（`src/DotVector.Core/Compression/`）
+
+`IVectorQuantizer` 抽象统一 SQ8、PQ、OPQ、RQ，并通过 `QuantizerSerializer` 将可选 `quantizer.bin` sidecar 持久化到 Segment 中。
+
+### 格式层（`src/DotVector.Core/Format/`）
 
 所有 `unmanaged struct`，字节序 little-endian，`[StructLayout(Sequential, Pack=1)]`。
 
@@ -197,7 +209,9 @@ my-database.dvec/
             ├── seg-000001/
             │   ├── seg.hdr     # SegmentHeader：向量数、维度、创建时间戳
             │   ├── vectors.bin # float32[N][dim]，行优先，直接 mmap
-            │   └── index.bin   # 索引序列化（HNSW 邻居表 / IVF 倒排列表）
+            │   ├── payload.bin # 可选 payload sidecar
+            │   ├── quantizer.bin # 可选量化器 sidecar
+            │   └── vamana.bin  # Vamana / DiskANN 图 sidecar
             └── seg-000002/
                 └── ...
 ```
@@ -213,7 +227,7 @@ my-database.dvec/
   → DotVector.Data（IVectorStore）
     → GrpcDotVectorClient（IDotVectorClient）
       → [gRPC 传输]
-        → DotVector.Cli（gRPC server）
+        → DotVector（gRPC server）
           → VectorDatabase.Search(...)
             → QueryEngine → HnswIndex → Compute.Distance
 ```
@@ -221,7 +235,7 @@ my-database.dvec/
 ### 进程内嵌入式访问（M9）
 
 ```
-用户应用（直接引用 DotVector）
+用户应用（直接引用 DotVector.Core）
   → VectorDatabase.CreateCollection(...)
   → Collection.Search(queryVec, topK=10)
     → QueryEngine → HnswIndex → TensorPrimitives.CosineSimilarity
@@ -250,7 +264,6 @@ my-database.dvec/
 ## AOT 兼容性
 
 所有生产代码启用 `IsAotCompatible=true`。关键约束：
-- 不使用 `Activator.CreateInstance` 或反射
+- 热路径避免运行时反射，VectorData 映射通过明确的 trim/AOT 注解隔离风险
 - 泛型约束明确（`where T : unmanaged`）
 - Protocol DTOs 不依赖运行时反射序列化（M9 gRPC 用 source-generated marshalling）
-

@@ -4,7 +4,15 @@ title: DotVector 文档
 
 # DotVector 文档
 
-DotVector 是面向 .NET 10 的嵌入式原生向量数据库，同时提供 gRPC 服务端、客户端 SDK、VectorData 适配、Docker 部署和后续管理台路线。
+DotVector 是面向 .NET 10 的嵌入式原生向量数据库，同时提供 gRPC 服务端、客户端 SDK、VectorData 适配、C / Python 连接器、Docker 部署和后续管理台路线。
+
+## 项目门面
+
+- `DotVector.Core`：嵌入式数据库引擎，包含 `VectorDatabase`、索引、持久化、过滤、量化与协议抽象。
+- `DotVector`：gRPC 服务端宿主和 Docker 镜像入口。
+- `DotVector.Data`：发布用客户端 SDK，包含高层客户端、gRPC 客户端、嵌入式工厂和 VectorData 适配。
+- `DotVector.Cli`：连接远端 gRPC 服务的命令行工具。
+- `connectors/c` / `connectors/python`：跨语言接入，覆盖 NativeAOT C ABI、Python gRPC 与 ctypes Native 客户端。
 
 ## 入门
 
@@ -18,7 +26,6 @@ DotVector 是面向 .NET 10 的嵌入式原生向量数据库，同时提供 gRP
 - [算法参考](algorithms.md)：Flat、HNSW、IVF、PQ、DiskANN 等算法基线
 - [.NET 10 优势](dotnet10-advantages.md)：运行时、SIMD、AOT 与 Span 生态
 - [产品对比](comparison.md)：与主流向量数据库的定位对比
-- [发布说明](release.md)：NuGet、Docker、GitHub Release 与 Pages 发布
 
 ## 运行与发布
 

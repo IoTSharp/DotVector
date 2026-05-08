@@ -18,8 +18,8 @@
 | **索引：Flat/Brute** | ✅（M2） | ✅ FLAT | ✅ | ✅ | ✅ | ✅ |
 | **索引：HNSW** | ✅（M3） | ✅ | ✅（v0.5+） | ✅ | ✅ | ✅ |
 | **索引：IVF** | ✅（M4） | ✅ IVF_FLAT | ✅（v0.5+） | ❌ | ✅ | ❌ |
-| **量化 PQ/SQ** | 计划（M11） | ✅ IVF_PQ、SQ8 | ❌ | ✅ SQ | ✅ PQ | ❌ |
-| **DiskANN** | 计划（M10） | ✅ DISKANN | ❌ | ❌ | ✅（实验） | ❌ |
+| **量化 PQ/SQ** | ✅ SQ8 / PQ / OPQ / RQ（M13） | ✅ IVF_PQ、SQ8 | ❌ | ✅ SQ | ✅ PQ | ❌ |
+| **DiskANN** | ✅ Vamana（M12） | ✅ DISKANN | ❌ | ❌ | ✅（实验） | ❌ |
 | **标量过滤** | ✅（M6） | ✅ | ✅ SQL WHERE | ✅ Payload | ✅ | 有限 |
 | **多向量字段** | 计划 | ✅ | ❌ | ✅ | ✅ | ❌ |
 | **持久化方式** | 单目录 mmap（M5）`.dvec/` | 分布式对象存储 | PG heap | 本地目录 | Lance 列存 | SQLite / 内存 |
@@ -27,9 +27,9 @@
 | **水平扩展** | ❌ 单机 | ✅ 分片 + 副本 | 有限（PG 分区） | ✅（Qdrant Cloud） | 有限 | ❌ |
 | **VectorData 集成** | ✅ 原生（M7） | 适配层 | 适配层 | 适配层 | 适配层 | 适配层 |
 | **Semantic Kernel** | ✅ 直接支持 | 需插件 | 需插件 | 需插件 | 需插件 | 需插件 |
-| **gRPC API** | 计划（M9） | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **容器镜像大小** | < 10 MB（AOT, M9） | ~500 MB | ~500 MB（含 PG） | ~50 MB | ~100 MB | ~200 MB |
-| **启动时间** | < 10 ms（AOT, M9） | ~30 s（集群） | ~5 s（PG） | ~1 s | < 100 ms | < 500 ms |
+| **gRPC API** | ✅（M9） | ✅ | ❌ | ✅ | ❌ | ❌ |
+| **容器镜像大小** | ASP.NET runtime 镜像（M9） | ~500 MB | ~500 MB（含 PG） | ~50 MB | ~100 MB | ~200 MB |
+| **启动时间** | 服务端秒级；CLI NativeAOT 毫秒级（M9） | ~30 s（集群） | ~5 s（PG） | ~1 s | < 100 ms | < 500 ms |
 | **许可证** | MIT | Apache 2.0 | PostgreSQL | Apache 2.0 | Apache 2.0 | Apache 2.0 |
 
 ---
@@ -62,24 +62,24 @@
 
 ### 场景 4：Python/Jupyter 快速原型
 
-**推荐**：❓ **Chroma** 或 **LanceDB**（Python 生态）
+**推荐**：❓ **Chroma** / **LanceDB**（Python 优先生态）或 ✅ **DotVector Python Connector**（需要复用 DotVector 服务/嵌入式引擎时）
 
-原因：DotVector 是 .NET 库，不适合 Python 使用场景。
+原因：DotVector 已提供 Python gRPC 与 ctypes Native 客户端，但 Python 生态的一站式体验仍在 M16 多语言快速开始中继续补强。
 
 ### 场景 5：十亿级向量生产系统
 
 **推荐**：❓ **Milvus**（分布式）或 **Qdrant**（单机超大规模）
 
-原因：DotVector 定位嵌入式单机，不支持水平扩展（M0～M9 阶段）。
+原因：DotVector 定位嵌入式/单机服务，不支持水平扩展；M15 才考虑分布式分片。
 
 ### 场景 6：Kubernetes Sidecar / Serverless Function
 
-**推荐**：✅ **DotVector**（M9 AOT 后）
+**推荐**：✅ **DotVector CLI / 嵌入式客户端**（NativeAOT）或 ✅ **DotVector Server**（轻量 gRPC 服务）
 
 原因：
-- Native AOT 单文件 < 10 MB
-- 启动时间 < 10 ms，完美适合冷启动场景
-- 比 Qdrant 容器（~50 MB）更轻量
+- CLI NativeAOT 单文件适合管理命令和冷启动客户端。
+- 服务端 Docker 镜像基于 ASP.NET runtime，适合 sidecar / 单机服务模式。
+- 业务进程内嵌入式使用 `DotVector.Core` 时无需额外数据库进程。
 
 ---
 

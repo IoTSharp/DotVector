@@ -25,9 +25,11 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 
 项目边界保持清晰：
 
-- `DotVector.Core` 是完整的嵌入式数据库引擎，一个 `VectorDatabase` 实例对应一个 `.dvec/` 数据库目录。
+- `DotVector.Core` 是完整的嵌入式数据库引擎，包含 `VectorDatabase`、`LocalDotVectorClient`、索引、存储、查询、协议 DTO 和距离计算；一个 `VectorDatabase` 实例对应一个 `.dvec/` 数据库目录。
 - `DotVector` 是服务端壳，用于在一个进程内托管多个 Core 数据库实例，并对外提供远程访问能力。
-- `DotVector.Data` 是客户端 SDK 与 `Microsoft.Extensions.VectorData` 适配层，可走本地嵌入式，也可连接远程服务端。
+- `DotVector.Data` 是发布用客户端 SDK，包含高层 `DotVectorClient`、gRPC 客户端、嵌入式工厂和 `Microsoft.Extensions.VectorData` 适配。
+- `DotVector.VectorData` 是仓库中保留的独立 VectorData 适配项目，便于后续拆分/兼容演进；当前主要发布门面是 `DotVector.Data`。
+- `connectors/c` 与 `connectors/python` 提供 C ABI、Python gRPC / Native ctypes 两条跨语言接入路径。
 
 ---
 
@@ -42,7 +44,7 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 | 存储能力 | `.dvec/` 目录、WAL、Segment、mmap 读取 |
 | 查询能力 | 向量检索、标量过滤、payload 持久化 |
 | 部署能力 | 嵌入式库、gRPC 服务、Docker 镜像、AOT CLI |
-| 生态集成 | `Microsoft.Extensions.VectorData`、NuGet、Release 产物 |
+| 生态集成 | `Microsoft.Extensions.VectorData`、C ABI、Python connector、NuGet、Release 产物 |
 
 ---
 
@@ -64,7 +66,9 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 | `DotVector.Core` | ![Core](https://img.shields.io/badge/Core-Engine-blue) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Core) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Core) | 嵌入式核心引擎，提供向量数据库、索引、存储、查询与距离计算能力。 |
 | `DotVector.Data` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Data) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Data) | 客户端 SDK 与 `Microsoft.Extensions.VectorData` 适配层，用于本地或远程访问 DotVector。 |
 | `DotVector.Cli` | ![CLI](https://img.shields.io/badge/CLI-Tool-orange) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Cli) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Cli) | 命令行工具，用于连接 DotVector gRPC 服务、管理集合与执行基础操作。 |
-| `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | C ABI / P-Invoke 连接器，用于后续跨语言原生调用。 |
+| `DotVector` | ![Server](https://img.shields.io/badge/Server-gRPC-lightgrey) |  |  | 服务端宿主，作为 Docker 镜像发布，不作为 NuGet 包发布。 |
+| `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | NativeAOT 共享库，暴露稳定 C ABI，支持嵌入式与远程句柄。 |
+| `connectors/python` | ![Connector](https://img.shields.io/badge/Connector-Python-lightgrey) |  |  | Python gRPC 客户端与 ctypes Native 客户端。 |
 
 ---
 
@@ -89,6 +93,8 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 ## 🐳 服务与发布
 
 - Docker 镜像：`iotsharp/dotvector`
+- 服务端入口：`dotnet run --project src/DotVector -- --data ./data --port 5180`
+- CLI 入口：`dotvector ping --endpoint http://localhost:5180`
 - GitHub Release：同时附带连接器产物与示例压缩包
 - 文档站：使用 [`JekyllNet`](https://github.com/JekyllNet/JekyllNet) 构建并发布到 GitHub Pages
 - NuGet 发布：使用组织级 `NUGET_ORG_API_KEY` secret
@@ -100,7 +106,7 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 ## 📦 仓库内容
 
 - `src/`：核心库、服务端、数据适配、CLI
-- `connectors/`：原生连接器
+- `connectors/`：C ABI 与 Python 连接器
 - `examples/`：示例工程
 - `tests/`：单元、集成、精度、基准测试
 - `docs/`：架构、算法、发布说明与产品定位

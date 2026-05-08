@@ -9,15 +9,13 @@ namespace DotVector.Core;
 /// 实现方式：
 /// <list type="bullet">
 ///   <item><description>M9: <c>GrpcDotVectorClient</c>（gRPC 传输，位于 DotVector.Data）</description></item>
-///   <item><description>M9: <c>LocalDotVectorClient</c>（进程内直接调用，供嵌入式场景使用，位于 DotVector）</description></item>
+///   <item><description>M9: <c>LocalDotVectorClient</c>（进程内直接调用，供嵌入式与服务端内部委托使用，位于 DotVector.Core）</description></item>
 ///   <item><description>测试: <c>InMemoryDotVectorClient</c>（内存模拟，用于单元测试）</description></item>
 /// </list>
 /// <para>
 /// <c>DotVector.Data</c>（VectorData 适配层）仅依赖此接口，
 /// 不直接引用 <c>DotVector</c>（服务端）。
 /// </para>
-/// TODO(M9): 实现 GrpcDotVectorClient（gRPC 传输）。
-/// TODO(M9): 实现 LocalDotVectorClient（进程内直连，零序列化开销）。
 /// </remarks>
 public interface IDotVectorClient : IAsyncDisposable
 {
@@ -106,7 +104,7 @@ public interface IDotVectorClient : IAsyncDisposable
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>集合元数据列表（顺序由实现定义）。</returns>
-    /// <remarks>TODO(M9): 映射到 gRPC <c>ListCollections</c> RPC。</remarks>
+    /// <remarks>M9 起已映射到 gRPC <c>ListCollections</c> RPC。</remarks>
     ValueTask<IReadOnlyList<Protocol.CollectionInfo>> ListCollectionsAsync(
         CancellationToken cancellationToken = default);
 

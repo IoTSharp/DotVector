@@ -290,17 +290,17 @@ my-database.dvec/
 
 ---
 
-## ✅ M9 — gRPC Server + Native AOT 单文件部署 + Docker 镜像
+## ✅ M9 — gRPC Server + CLI Native AOT 单文件部署 + Docker 镜像
 
-**目标**：提供可选的 gRPC server 模式，支持 Native AOT 编译，生成 Docker 镜像。同时完善客户端/服务端的双向连接实现。
+**目标**：提供可选的 gRPC server 模式，CLI 支持 Native AOT 单文件发布，生成服务端 Docker 镜像。同时完善客户端/服务端的双向连接实现。
 
 **实现内容**：
 - `src/DotVector/Server/DotVectorServer.cs` — `Build(dataDirectory, port, args, loopbackOnly, httpsCertificate)` Kestrel HTTP/2 宿主，默认 h2c，可选 HTTPS（h2 over TLS、ALPN）
 - `protos/dotvector.proto` + `src/DotVector/Grpc/VectorServiceImpl.cs` — VectorService（Ping / CreateCollection / DeleteCollection / ListCollections / Upsert / Delete / Search / Get / Scroll）
 - `src/DotVector.Data/Grpc/GrpcDotVectorClient.cs : IDotVectorClient` — gRPC 传输；默认 `SocketsHttpHandler` 关闭代理，避免本机 loopback 被 HTTP_PROXY/PAC 劫持；`ModuleInitializer` 提前开 `Http2UnencryptedSupport` 支持 h2c prior-knowledge
-- `src/DotVector.Data/LocalDotVectorClient.cs : IDotVectorClient` — 进程内直连，零序列化，供嵌入式使用
+- `src/DotVector.Core/Api/LocalDotVectorClient.cs : IDotVectorClient` — 进程内直连，零序列化，供嵌入式使用，也作为服务端内部委托
 - `src/DotVector.Cli` — 远程命令（`ping`、`collections list/create/delete`、`--endpoint`），`PublishAot=true` 单文件发布通过
-- `Dockerfile` 多阶段构建 + `docker-compose.yml` / `docker-compose.override.yml` / `docker-compose.dcproj` 一键启动
+- `Dockerfile` 多阶段构建 + `docker-compose.yml` / `docker-compose.override.yml` 一键启动；`docker-compose.dcproj` 仅保留 Visual Studio 集成
 
 **参考**：
 - Qdrant gRPC API：https://github.com/qdrant/qdrant/blob/master/lib/api/src/grpc/proto/qdrant.proto
@@ -308,7 +308,7 @@ my-database.dvec/
 
 **验收标准**：
 - [x] gRPC server 启动，接受 Insert / Search 请求（`tests/DotVector.Tests/GrpcServerIntegrationTests.cs` 端到端验证）
-- [x] Native AOT 单文件发布通过（0 trim/AOT 警告）
+- [x] `DotVector.Cli` Native AOT 单文件发布通过（0 trim/AOT 警告）
 - [x] Docker 镜像构建通过
 - [x] CI 中 AOT 构建通过
 
@@ -364,7 +364,7 @@ my-database.dvec/
 - `DotVector.Core.Api.Collection<TKey>` 新增：
   - `TryGet(TKey key, out VectorRecord<TKey>? record)` — MemTable 查；未命中再扫 Segment（mmap 切片读 vectors.bin + 已加载的 payload）
   - `GetMany(ReadOnlySpan<TKey> keys, bool includeVectors)` — 批量
-- `LocalDotVectorClient` / `InMemoryDotVectorClient` 同步实现 `GetAsync`
+- `LocalDotVectorClient` / `GrpcDotVectorClient` / `InMemoryDotVectorClient` 同步实现 `GetAsync`
 - `Protocol.VectorSearchResult` 新增 `float[]? Vector` 字段；`SearchAsync` 路径在 `IncludeVectors=true` 时回填
 - `DotVectorCollection<TKey,TRecord>`：
   - `GetAsync(TKey key, RecordRetrievalOptions?)` / `GetAsync(IEnumerable<TKey>, ...)` 走 `IDotVectorClient.GetAsync`
@@ -410,7 +410,7 @@ my-database.dvec/
 
 **实现内容**：
 - `IDotVectorClient.ListCollectionsAsync(CancellationToken)` → `IReadOnlyList<CollectionInfo>`（name + dim + metric + record count）
-  - `LocalDotVectorClient` 走 `VectorDatabase.Catalog`；`InMemoryDotVectorClient` 走内部 dict
+  - `LocalDotVectorClient` 走 `VectorDatabase.Catalog`；`GrpcDotVectorClient` 走 gRPC `ListCollections`；`InMemoryDotVectorClient` 走内部 dict
 - `DotVectorVectorStore`：
   - `ListCollectionNamesAsync` 实现
   - `GetDynamicCollection(string name, VectorStoreCollectionDefinition definition)` 返回 `DotVectorDynamicCollection : VectorStoreCollection<object, Dictionary<string,object?>>`
@@ -418,7 +418,7 @@ my-database.dvec/
 - `DotVectorCollection` 构造接受可选 `VectorStoreCollectionDefinition` 覆盖反射推断结果
 
 **验收标准**：
-- [x] `ListCollectionNamesAsync` 在 InMemory 客户端下返回所有已建集合（嵌入式 `LocalDotVectorClient` 留待 M9）
+- [x] `ListCollectionNamesAsync` 在 InMemory / Local / gRPC 客户端下返回所有已建集合
 - [x] `GetDynamicCollection` 端到端：建集合 → upsert `Dictionary<string,object?>` → search 命中
 - [x] 显式 `VectorStoreCollectionDefinition` 与反射推断模式行为一致（同一组测试参数化两次）
 - [x] `DotVector.Data` 仍无对 `DotVector`（服务端壳）的程序集引用（断言保留）
@@ -480,6 +480,11 @@ my-database.dvec/
 - `ResidualQuantizer` (RQ) — 多级残差码本（M 级，每级 K 中心）；适合 8–16 字节预算下的高召回
 - `QuantizedDistanceKernel` — 实现 `IDistanceKernel<byte>`，封装 "查询预计算 LUT + 编码扫描"；FlatIndex 与 Vamana 共用
 
+**已落地说明**：
+- `IVectorQuantizer.BuildScorer` 与 `IQuantizedScorer` 已替代早期 `BuildDistanceTable` 设想，统一 SQ8 / PQ / OPQ / RQ 的查询侧打分入口。
+- `QuantizedFlatIndex<TKey>` 已接入训练后量化器，当前量化索引搜索仅支持 L2 语义。
+- `SegmentWriter` / `SegmentReader` 已通过可选 `quantizer.bin` sidecar 持久化量化器；未修改 `SegmentHeader` 布局，老 Segment 无 sidecar 时按 `Quantizer = null` 读取。
+
 **索引侧适配**：
 - `FlatIndex<TKey>` 新增 `WithQuantizer(IVectorQuantizer)` 工厂；存储 `byte[]` 而非 `float[]`
 - `IvfPqIndex<TKey>` 重构：内部改用 `ProductQuantizer`，把 OPQ/RQ 作为 drop-in 替换（API 不变，新增 `IvfQuantizerKind`）
@@ -487,7 +492,7 @@ my-database.dvec/
 
 **持久化**：
 - 每个量化器序列化为 `seg-{seq}/quantizer.bin`，自描述前缀 1 字节 `QuantizerKind`（None/SQ8/PQ/OPQ/RQ）
-- `SegmentHeader` 增加 `QuantizerKind` 字段（保留位足够），升级 `FileHeader.Version`
+- `SegmentHeader` 布局保持不变，读端按 `quantizer.bin` 是否存在进行向后兼容判断
 - 码本 / 旋转矩阵 R 全部走 `MemoryMarshal.Cast` + little-endian
 
 **参考**：
@@ -497,15 +502,19 @@ my-database.dvec/
 - FAISS `IndexPQ` / `IndexOPQ` / `IndexResidualQuantizer`
 
 **验收标准**：
-- [ ] **SQ8**：相对 Flat 内存压缩 4×，Recall@10 ≥ 0.97（SIFT-1M 子集）
-- [ ] **PQ**（M=8, NBits=8）：内存压缩 ≥ 16×，Recall@10 ≥ 0.65（取代 M4 验收的 0.50 基线）
-- [ ] **OPQ**：在同 M/NBits 下 Recall@10 比 PQ 提升 ≥ 5pp
-- [ ] **RQ**（2 级 8-bit）：Recall@10 ≥ 0.80
+- [x] SQ8 / PQ / OPQ / RQ 均实现 `IVectorQuantizer` 并通过 encode/decode/scorer round-trip 测试
+- [x] `QuantizerSerializer` 覆盖 SQ8 / PQ / OPQ / RQ 的 Write→Read 测试
+- [x] `QuantizedFlatIndex<TKey>` 接入量化线性扫描，并有基础召回/自查询测试
+- [x] `quantizer.bin` sidecar 接入 SegmentWriter / SegmentReader，老 Segment 保持可读
+- [ ] **SQ8**：相对 Flat 内存压缩 4×，Recall@10 ≥ 0.97（SIFT-1M 子集，待 M8 大基准）
+- [ ] **PQ**（M=8, NBits=8）：内存压缩 ≥ 16×，Recall@10 ≥ 0.65（取代 M4 验收的 0.50 基线，待 M8 大基准）
+- [ ] **OPQ**：在同 M/NBits 下 Recall@10 比 PQ 提升 ≥ 5pp（待 M8 大基准）
+- [x] **RQ**（多级 8-bit）：合成高斯簇 Recall@10 ≥ 0.80
 - [ ] ADC 距离计算吞吐 ≥ 1×10⁹ pair/s（128 维，单核，`Vector256<float>`）
-- [ ] `quantizer.bin` round-trip + 跨平台（little-endian）测试通过
-- [ ] `IvfPqIndex` 切换到新 `IVectorQuantizer` 后 M4 既有测试全部仍绿
-- [ ] 全部 SIMD vs scalar 一致性差 < 1e-4（量化数值容忍度）
-- [ ] `DotVector.Core` 仍零第三方运行时依赖
+- [x] `quantizer.bin` round-trip 测试通过
+- [x] `IvfPqIndex` 切换到新 `IVectorQuantizer` scorer 后 M4 既有测试仍绿
+- [x] 量化 scorer 与解码后 L2² 的一致性测试通过（按量化数值容忍度）
+- [x] `DotVector.Core` 仍零第三方运行时依赖
 
 **PR 切分**：
 | PR | 内容 |

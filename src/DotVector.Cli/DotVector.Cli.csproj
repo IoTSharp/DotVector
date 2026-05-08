@@ -5,6 +5,7 @@
     <AssemblyName>DotVector.Cli</AssemblyName>
     <RootNamespace>DotVector.Cli</RootNamespace>
     <IsPackable>true</IsPackable>
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <Description>Command-line client for DotVector gRPC servers.</Description>
   </PropertyGroup>
 
@@ -23,8 +24,8 @@
   <ItemGroup>
     <!--
       CLI 仅引用客户端 SDK（DotVector.Data），同时支持：
-        - 本地嵌入式访问：LocalDotVectorClient → DotVector.Core.Api.VectorDatabase
-        - 远程服务器访问：GrpcDotVectorClient → DotVector（gRPC server）
+        - 当前命令面：GrpcDotVectorClient → DotVector（gRPC server）
+        - 后续本地命令：可经 DotVector.Data 的 Embedded 工厂进入 DotVector.Core
       不直接引用 DotVector（服务端壳）与 DotVector.Core（嵌入式引擎）。
     -->
     <ProjectReference Include="..\DotVector.Data\DotVector.Data.csproj" />

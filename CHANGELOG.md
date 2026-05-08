@@ -8,6 +8,12 @@
 
 ### Added
 
+- 梳理项目门面与路线图：补齐 `DotVector.Core` / `DotVector` / `DotVector.Data` / `DotVector.VectorData` / C/Python 连接器职责说明，修正架构文档中 CLI/server、Core API 路径、LocalDotVectorClient 位置等旧描述；同步 `ROADMAP.md` M7/M9/M13 当前落地状态，并更新 comparison / algorithms / docs index 的 DiskANN、量化、gRPC 与连接器信息。
+
+- CI 补强：`ci.yml` 在三平台测试后增加 CLI Native AOT publish 验证，Windows/Linux 增加 C NativeAOT connector publish 验证，Ubuntu 增加 NuGet pack、Docker build 与 JekyllNet docs build；测试结果 logger 改为默认 trx 文件名，避免多个测试程序集覆盖同一个 `test-results.trx`。
+
+- `DotVector.Cli` 显式声明 `win-x64` / `linux-x64` / `osx-x64` / `osx-arm64` RuntimeIdentifiers，修正带 `--runtime` 的 Native AOT publish 缺少 RID asset target 的问题。
+
 - 恢复历史 C / Python 连接器与 `DotVector.VectorData` 项目源码；恢复 `DotVector.Data` 高层客户端门面，并补回服务端多数据库 selector/registry 的 gRPC 路由与隔离测试。
 
 - PR #M16.6：M16 — 开发体验规划、文档站、组织级 NuGet 发布与 README 增补

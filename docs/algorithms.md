@@ -76,7 +76,7 @@
 
 ## 4. PQ / OPQ / SQ 量化
 
-**计划 Milestone**：M11
+**计划 Milestone**：M13
 
 ### 乘积量化（Product Quantization, PQ）
 - 论文：Jégou et al.（同上）
@@ -93,14 +93,15 @@
 - 参考：https://milvus.io/docs/index.md#IVF_SQ8
 
 **DotVector 借鉴点**：
-- SQ8 作为入门量化（M11 早期），实现简单，效果好
-- PQ 作为高压缩方案（M11 后期）
+- SQ8 作为入门量化（M13.1），实现简单，效果好
+- PQ / OPQ / RQ 作为高压缩方案（M13.2～M13.4）
+- `QuantizerSerializer` 与 `quantizer.bin` sidecar 负责持久化（M13.5）
 
 ---
 
 ## 5. DiskANN（Vamana 图索引）
 
-**计划 Milestone**：M10
+**计划 Milestone**：M12
 
 **核心思想**：专为 SSD 优化的图索引算法，通过 Vamana 图构建 + 压缩向量（PQ）的两阶段搜索，实现内存放不下的大规模数据集（十亿级）的高性能 ANN 搜索。
 
@@ -120,7 +121,7 @@
 
 ## 6. SPTAG（Space Partition Tree and Graph）
 
-**计划 Milestone**：M10（参考）
+**计划 Milestone**：M12+（参考）
 
 **核心思想**：结合 KD-Tree 和 BKT（Balanced K-Means Tree）快速定位候选，再用图搜索精化，支持十亿级向量。
 
@@ -136,7 +137,7 @@
 
 ## 7. ScaNN（Scalable Nearest Neighbors）
 
-**计划 Milestone**：M11（参考量化思路）
+**计划 Milestone**：M13+（参考量化思路）
 
 **核心思想**：各向异性向量量化（Anisotropic VQ），针对最大内积搜索（MIPS）优化量化误差，Google 内部大规模应用。
 
@@ -228,7 +229,7 @@
 |--------|------|--------|------|
 | SIFT-1M | 128 | 100 万 | M3/M4 召回率基准 |
 | GloVe-1.2M | 100 | 120 万 | NLP embedding 场景 |
-| Deep-1B | 96 | 10 亿 | M10 DiskANN 大规模测试 |
+| Deep-1B | 96 | 10 亿 | M12 DiskANN / Vamana 大规模测试 |
 | MNIST | 784 | 60 万 | 低维测试 |
 
 ---

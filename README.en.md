@@ -21,6 +21,14 @@ It supports two common modes:
 
 The repository covers the engine, client adapter, CLI, server host, connectors, and example code.
 
+The main boundaries are:
+
+- `DotVector.Core` is the embedded engine: `VectorDatabase`, `LocalDotVectorClient`, indexes, storage, query, protocol DTOs, and distance kernels.
+- `DotVector` is the gRPC server host and Docker image, not a NuGet client package.
+- `DotVector.Data` is the published client SDK, including the high-level `DotVectorClient`, gRPC client, embedded factory, and `Microsoft.Extensions.VectorData` adapter.
+- `DotVector.VectorData` is kept as a standalone VectorData adapter project for compatibility and future split-out work.
+- `connectors/c` and `connectors/python` provide the C ABI and Python gRPC / native ctypes paths.
+
 ---
 
 ## 🧠 Core Strengths
@@ -34,7 +42,7 @@ The repository covers the engine, client adapter, CLI, server host, connectors, 
 | Storage | `.dvec/` directory, WAL, Segment, mmap reads |
 | Querying | ANN search, scalar filtering, payload persistence |
 | Deployment | Embedded library, gRPC service, Docker image, AOT CLI |
-| Ecosystem | `Microsoft.Extensions.VectorData`, NuGet, release assets |
+| Ecosystem | `Microsoft.Extensions.VectorData`, C ABI, Python connector, NuGet, release assets |
 
 ---
 
@@ -56,7 +64,9 @@ The repository covers the engine, client adapter, CLI, server host, connectors, 
 | `DotVector.Core` | ![Core](https://img.shields.io/badge/Core-Engine-blue) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Core) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Core) | Embedded core engine for vector database, indexing, storage, query, and distance computation. |
 | `DotVector.Data` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Data) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Data) | Client SDK and `Microsoft.Extensions.VectorData` adapter for local or remote DotVector access. |
 | `DotVector.Cli` | ![CLI](https://img.shields.io/badge/CLI-Tool-orange) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Cli) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Cli) | Command-line tool for connecting to the DotVector gRPC service and managing collections. |
-| `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | C ABI / P-Invoke connector for future native cross-language calls. |
+| `DotVector` | ![Server](https://img.shields.io/badge/Server-gRPC-lightgrey) |  |  | Server host shipped as a Docker image, not as a NuGet package. |
+| `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | NativeAOT shared library exposing the stable C ABI for embedded and remote handles. |
+| `connectors/python` | ![Connector](https://img.shields.io/badge/Connector-Python-lightgrey) |  |  | Python gRPC client and native ctypes client. |
 
 ---
 
@@ -81,6 +91,8 @@ A fuller runnable sample lives in [`examples/csharp/QuickStart`](examples/csharp
 ## 🐳 Service and Release
 
 - Docker image: `iotsharp/dotvector`
+- Server entry point: `dotnet run --project src/DotVector -- --data ./data --port 5180`
+- CLI entry point: `dotvector ping --endpoint http://localhost:5180`
 - GitHub Release: includes connector artifacts and example archives
 
 Release details are documented in [`docs/release.md`](docs/release.md).
@@ -90,10 +102,16 @@ Release details are documented in [`docs/release.md`](docs/release.md).
 ## 📦 Repository Contents
 
 - `src/`: core library, server, client adapter, CLI
-- `connectors/`: native connector
+- `connectors/`: C ABI and Python connectors
 - `examples/`: sample projects
 - `tests/`: unit, integration, accuracy, benchmark tests
 - `docs/`: architecture, algorithms, release notes
+
+---
+
+## 🧭 Next
+
+The engine already covers indexes, persistence, quantization, VectorData, and server deployment. The next roadmap focus is developer experience and the server management surface: Code-First modeling, `_system.dvec/`, database lifecycle, users/roles, Vue 3 admin UI, and broader language quick starts. See [`ROADMAP.md`](ROADMAP.md) M16.
 
 ---
 

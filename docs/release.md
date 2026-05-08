@@ -13,6 +13,8 @@ DotVector release publishing is handled by `.github/workflows/publish.yml`.
 Publishing a GitHub Release runs the full pipeline:
 
 - builds and tests the solution
+- publishes the CLI Native AOT smoke artifact during CI/release validation
+- publishes the C NativeAOT connector artifact for release assets
 - packs and pushes `DotVector.Core`, `DotVector.Data`, and `DotVector.Cli` to nuget.org
 - builds and pushes `iotsharp/dotvector:<version>` to Docker Hub
 - also tags `iotsharp/dotvector:latest` for non-prerelease releases
@@ -51,3 +53,7 @@ The key should be scoped as narrowly as possible:
 - source: `https://api.nuget.org/v3/index.json`
 
 The publish workflow fails fast when `NUGET_ORG_API_KEY` is missing, so manual dispatch can be used safely for dry build/test runs with `publish_nuget=false`.
+
+## CI Coverage
+
+`.github/workflows/ci.yml` is the pre-release guardrail. It runs restore, Release build, tests, CLI Native AOT publish, C NativeAOT connector publish, and on Ubuntu also NuGet pack, Docker image build, and documentation build. This keeps release-only failures visible before a tag is cut.

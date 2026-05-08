@@ -54,10 +54,56 @@ jobs:
           dotnet test DotVector.slnx
           --configuration Release
           --no-build
-          --logger "trx;LogFileName=test-results.trx"
+          --logger trx
           --collect:"XPlat Code Coverage"
           --results-directory ./TestResults
           -- xunit.parallelizeTestCollections=true
+
+      - name: Pack NuGet packages
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          dotnet pack src/DotVector.Core/DotVector.Core.csproj --configuration Release --no-build --output ./artifacts/nupkgs
+          dotnet pack src/DotVector.Data/DotVector.Data.csproj --configuration Release --no-build --output ./artifacts/nupkgs
+          dotnet pack src/DotVector.Cli/DotVector.Cli.csproj --configuration Release --no-build --output ./artifacts/nupkgs -p:PublishAot=false
+
+      - name: Publish CLI Native AOT
+        run: >
+          dotnet publish src/DotVector.Cli/DotVector.Cli.csproj
+          --configuration Release
+          --runtime ${{ runner.os == 'Windows' && 'win-x64' || runner.os == 'Linux' && 'linux-x64' || runner.arch == 'ARM64' && 'osx-arm64' || 'osx-x64' }}
+          --self-contained true
+          -p:PublishAot=true
+          -p:PublishSingleFile=true
+          --output ./artifacts/cli-aot
+
+      - name: Smoke CLI Native AOT
+        shell: pwsh
+        run: |
+          $exe = if ($IsWindows) { "./artifacts/cli-aot/DotVector.Cli.exe" } else { "./artifacts/cli-aot/DotVector.Cli" }
+          & $exe --version
+
+      - name: Publish C Native connector
+        if: matrix.os != 'macos-latest'
+        run: >
+          dotnet publish connectors/c/native/DotVector.Native/DotVector.Native.csproj
+          --configuration Release
+          --runtime ${{ runner.os == 'Windows' && 'win-x64' || 'linux-x64' }}
+          --no-restore
+          --output ./artifacts/native
+
+      - name: Build Docker image
+        if: matrix.os == 'ubuntu-latest'
+        run: docker build -f src/DotVector/Dockerfile -t dotvector:ci .
+
+      - name: Build docs
+        if: matrix.os == 'ubuntu-latest'
+        uses: JekyllNet/action@v2.5
+        with:
+          source: ./docs
+          destination: ./_site
+          tool-version: 0.2.5
+          upload-artifact: "false"
+          verbose: "true"
 
       - name: Upload test results
         if: always()
@@ -65,3 +111,10 @@ jobs:
         with:
           name: test-results-${{ matrix.os }}
           path: ./TestResults
+
+      - name: Upload CI artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-packages-${{ matrix.os }}
+          path: ./artifacts/nupkgs

@@ -1,5 +1,7 @@
 title: DotVector
 description: .NET 10 embedded vector database
+url: https://iotsharp.net
+baseurl: /DotVector
 markdown: kramdown
 
 header_pages:

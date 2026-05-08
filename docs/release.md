@@ -35,12 +35,13 @@ GitHub Release asset upload only runs for the `release.published` event, because
 
 Documentation is published by `.github/workflows/pages.yml`.
 
+- Public URL: `https://iotsharp.net/DotVector/`
 - Source directory: `docs/`
 - Entry page: `docs/index.md`
 - Build step: `JekyllNet/action@v2.5`
 - Deploy step: `actions/deploy-pages`
 
-The workflow follows GitHub Pages custom workflow deployment. `JekyllNet/action@v2.5` installs the .NET 10 SDK, installs the pinned `JekyllNet` dotnet tool version `0.2.5`, and runs `jekyllnet build --source ./docs --destination ./_site`. The generated `_site` directory is then uploaded as the GitHub Pages artifact.
+The workflow follows GitHub Pages custom workflow deployment. `JekyllNet/action@v2.5` installs the .NET 10 SDK, installs the pinned `JekyllNet` dotnet tool version `0.2.5`, and runs `jekyllnet build --source ./docs --destination ./_site`. `docs/_config.yml` sets `url: https://iotsharp.net` and `baseurl: /DotVector` for the project-site subdirectory. The generated `_site` directory is then uploaded as the GitHub Pages artifact.
 
 ## NuGet API Key
 

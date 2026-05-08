@@ -6,6 +6,8 @@ title: DotVector 文档
 
 DotVector 是面向 .NET 10 的嵌入式原生向量数据库，同时提供 gRPC 服务端、客户端 SDK、VectorData 适配、C / Python 连接器、Docker 部署和后续管理台路线。
 
+文档站地址：<https://iotsharp.net/DotVector/>
+
 ## 项目门面
 
 - `DotVector.Core`：嵌入式数据库引擎，包含 `VectorDatabase`、索引、持久化、过滤、量化与协议抽象。
@@ -17,15 +19,15 @@ DotVector 是面向 .NET 10 的嵌入式原生向量数据库，同时提供 gRP
 ## 入门
 
 - [README](https://github.com/IoTSharp/DotVector/blob/main/README.md)：项目定位、快速开始与包说明
-- [架构总览](architecture.md)：Core / Server / Data / CLI 分层
-- [发布说明](release.md)：NuGet、Docker、GitHub Release 与 Pages 发布
+- [架构总览](/DotVector/architecture/)：Core / Server / Data / CLI 分层
+- [发布说明](/DotVector/release/)：NuGet、Docker、GitHub Release 与 Pages 发布
 - [路线图](https://github.com/IoTSharp/DotVector/blob/main/ROADMAP.md)：Milestone、验收标准与后续规划
 
 ## 设计文档
 
-- [算法参考](algorithms.md)：Flat、HNSW、IVF、PQ、DiskANN 等算法基线
-- [.NET 10 优势](dotnet10-advantages.md)：运行时、SIMD、AOT 与 Span 生态
-- [产品对比](comparison.md)：与主流向量数据库的定位对比
+- [算法参考](/DotVector/algorithms/)：Flat、HNSW、IVF、PQ、DiskANN 等算法基线
+- [.NET 10 优势](/DotVector/dotnet10-advantages/)：运行时、SIMD、AOT 与 Span 生态
+- [产品对比](/DotVector/comparison/)：与主流向量数据库的定位对比
 
 ## 运行与发布
 

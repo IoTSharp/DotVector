@@ -52,6 +52,10 @@ layout: default
     <strong>发布说明</strong>
     <span>NuGet、Docker、GitHub Release 与 GitHub Pages 的发布流程。</span>
   </a>
+  <a class="doc-card" href="/DotVector/release-news-v1.0.0">
+    <strong>v1.0.0 发布</strong>
+    <span>索引、量化、持久化、gRPC、Docker 与生态集成的版本概览。</span>
+  </a>
   <a class="doc-card" href="https://github.com/IoTSharp/DotVector/blob/main/ROADMAP.md">
     <strong>路线图</strong>
     <span>M0 到 M16 的 Milestone、验收标准与后续规划。</span>

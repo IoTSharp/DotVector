@@ -43,6 +43,7 @@ Documentation is published by `.github/workflows/pages.yml`.
 - Public URL: `https://iotsharp.net/DotVector/`
 - Source directory: `docs/`
 - Entry page: `docs/index.md`
+- Release news: [`docs/release-news-v1.0.0.md`](/DotVector/release-news-v1.0.0)
 - Build step: `JekyllNet/action@v2.5`
 - Deploy step: `actions/deploy-pages`
 

@@ -9,7 +9,7 @@
 ### Added
 
 - PR #M9.2：M9.2 — README 门面重构与项目介绍更新
-  - `README.md` / `README.en.md`：标题与小标题统一加入 emoji，移除路线图式展示，改为项目介绍、核心实力、主要优势、架构分层、快速开始、发布与仓库内容说明
+  - `README.md` / `README.en.md`：标题与小标题统一加入 emoji，移除路线图式展示，改为项目介绍、核心实力、主要优势、NuGet 包与连接器表格、快速开始、发布与仓库内容说明
   - `docs/release.md` 继续作为发布补充说明，保留 NuGet / Docker Hub / GitHub Release 的产物说明
 
 - PR #M9.1：M9.1 — 发布流水线覆盖 Docker Hub、NuGet 与 GitHub Release 资产

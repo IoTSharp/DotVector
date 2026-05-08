@@ -49,15 +49,14 @@ The repository covers the engine, client adapter, CLI, server host, connectors, 
 
 ---
 
-## 🏗️ Architecture
+## 📦 NuGet Packages and Connectors
 
-| Component | Role |
-|-----------|------|
-| `DotVector.Core` | Embedded core engine |
-| `DotVector` | Server host |
-| `DotVector.Data` | `VectorData` client adapter |
-| `DotVector.Cli` | Command-line tool |
-| `connectors/c/native` | C ABI / P-Invoke connector |
+| Name | Label | Downloads | Version | Role |
+|------|-------|-----------|---------|------|
+| `DotVector.Core` | ![Core](https://img.shields.io/badge/Core-Engine-blue) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Core) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Core) | Embedded core engine for vector database, indexing, storage, query, and distance computation. |
+| `DotVector.Data` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Data) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Data) | Client SDK and `Microsoft.Extensions.VectorData` adapter for local or remote DotVector access. |
+| `DotVector.Cli` | ![CLI](https://img.shields.io/badge/CLI-Tool-orange) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Cli) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Cli) | Command-line tool for connecting to the DotVector gRPC service and managing collections. |
+| `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | C ABI / P-Invoke connector for future native cross-language calls. |
 
 ---
 
@@ -82,7 +81,6 @@ A fuller runnable sample lives in [`examples/csharp/QuickStart`](examples/csharp
 ## 🐳 Service and Release
 
 - Docker image: `iotsharp/dotvector`
-- NuGet packages: `DotVector.Core`, `DotVector.Data`, `DotVector.Cli`
 - GitHub Release: includes connector artifacts and example archives
 
 Release details are documented in [`docs/release.md`](docs/release.md).

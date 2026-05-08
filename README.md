@@ -49,15 +49,14 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 
 ---
 
-## 🏗️ 架构分层
+## 📦 NuGet 包与连接器
 
-| 组件 | 作用 |
-|------|------|
-| `DotVector.Core` | 嵌入式核心引擎 |
-| `DotVector` | 服务端宿主 |
-| `DotVector.Data` | `VectorData` 客户端适配 |
-| `DotVector.Cli` | 命令行工具 |
-| `connectors/c/native` | C ABI / P-Invoke 连接器 |
+| 名称 | 小标签 | 下载量 | 版本号 | 作用 |
+|------|--------|--------|--------|------|
+| `DotVector.Core` | ![Core](https://img.shields.io/badge/Core-Engine-blue) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Core) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Core) | 嵌入式核心引擎，提供向量数据库、索引、存储、查询与距离计算能力。 |
+| `DotVector.Data` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Data) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Data) | 客户端 SDK 与 `Microsoft.Extensions.VectorData` 适配层，用于本地或远程访问 DotVector。 |
+| `DotVector.Cli` | ![CLI](https://img.shields.io/badge/CLI-Tool-orange) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Cli) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Cli) | 命令行工具，用于连接 DotVector gRPC 服务、管理集合与执行基础操作。 |
+| `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | C ABI / P-Invoke 连接器，用于后续跨语言原生调用。 |
 
 ---
 
@@ -82,7 +81,6 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 ## 🐳 服务与发布
 
 - Docker 镜像：`iotsharp/dotvector`
-- NuGet 包：`DotVector.Core`、`DotVector.Data`、`DotVector.Cli`
 - GitHub Release：同时附带连接器产物与示例压缩包
 
 发布说明见 [`docs/release.md`](docs/release.md)。

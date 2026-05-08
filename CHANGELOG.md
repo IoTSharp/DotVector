@@ -20,7 +20,7 @@
   - `README.md`：在原有项目门面基础上增补 `DotVector.Core` 嵌入式引擎、`DotVector` 服务端宿主、`DotVector.Data` 客户端 / VectorData 适配三层职责，以及文档站和组织级 NuGet 发布说明
   - `ROADMAP.md`：新增 M16 开发体验补强 milestone，覆盖 Code-First、便捷查询 API、服务端 `_system.dvec/`、管理 API / CLI、Vue3 管理台、文档站、多语言快速开始与可选 KDTree
   - `docs/index.md` / `docs/_config.yml` / `.github/workflows/pages.yml`（新增）：以 `docs/` 为 GitHub Pages 文档源，使用 `JekyllNet/action@v2.5` 构建并发布到 GitHub Pages
-  - `.github/workflows/publish.yml` / `docs/release.md`：NuGet 发布 secret 从 `NUGET_API_KEY` 改为组织级 `NUGET_ORG_API_KEY`，文档补充 API key scope 与 Pages 发布说明
+
 
 - PR #M9.2：M9.2 — README 门面重构与项目介绍更新
   - `README.md` / `README.en.md`：标题与小标题统一加入 emoji，移除路线图式展示，改为项目介绍、核心实力、主要优势、NuGet 包与连接器表格、快速开始、发布与仓库内容说明

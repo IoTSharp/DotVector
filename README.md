@@ -97,7 +97,6 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 - CLI 入口：`dotvector ping --endpoint http://localhost:5180`
 - GitHub Release：同时附带连接器产物与示例压缩包
 - 文档站：使用 [`JekyllNet`](https://github.com/JekyllNet/JekyllNet) 构建并发布到 GitHub Pages
-- NuGet 发布：使用组织级 `NUGET_ORG_API_KEY` secret
 
 发布说明见 [`docs/release.md`](docs/release.md)。
 

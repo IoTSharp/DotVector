@@ -4,7 +4,7 @@ DotVector release publishing is handled by `.github/workflows/publish.yml`.
 
 ## Required Secrets
 
-- `NUGET_ORG_API_KEY`: nuget.org organization API key with permission to publish DotVector packages.
+- `NUGET_API_KEY`: nuget.org API key with permission to publish DotVector packages.
 - `DOCKERHUB_USERNAME`: Docker Hub account that can push to the `iotsharp` namespace.
 - `DOCKERHUB_TOKEN`: Docker Hub access token for the account above.
 
@@ -42,9 +42,9 @@ Documentation is published by `.github/workflows/pages.yml`.
 
 The workflow follows GitHub Pages custom workflow deployment. `JekyllNet/action@v2.5` installs the .NET 10 SDK, installs the pinned `JekyllNet` dotnet tool version `0.2.5`, and runs `jekyllnet build --source ./docs --destination ./_site`. The generated `_site` directory is then uploaded as the GitHub Pages artifact.
 
-## NuGet Organization API Key
+## NuGet API Key
 
-Create the API key under the NuGet organization that owns the `DotVector.*` package IDs, then save it in GitHub repository or organization secrets as `NUGET_ORG_API_KEY`.
+Create the API key under the NuGet account or organization that owns the `DotVector.*` package IDs, then save it in GitHub repository or organization secrets as `NUGET_API_KEY`.
 
 The key should be scoped as narrowly as possible:
 
@@ -52,7 +52,7 @@ The key should be scoped as narrowly as possible:
 - operation: push new package and package version
 - source: `https://api.nuget.org/v3/index.json`
 
-The publish workflow fails fast when `NUGET_ORG_API_KEY` is missing, so manual dispatch can be used safely for dry build/test runs with `publish_nuget=false`.
+The publish workflow fails fast when `NUGET_API_KEY` is missing, so manual dispatch can be used safely for dry build/test runs with `publish_nuget=false`.
 
 ## CI Coverage
 

@@ -82,7 +82,7 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 ## 🐳 服务与发布
 
 - Docker 镜像：`iotsharp/dotvector`
-- NuGet 包：`DotVector`、`DotVector.Core`、`DotVector.Data`、`DotVector.Cli`
+- NuGet 包：`DotVector.Core`、`DotVector.Data`、`DotVector.Cli`
 - GitHub Release：同时附带连接器产物与示例压缩包
 
 发布说明见 [`docs/release.md`](docs/release.md)。

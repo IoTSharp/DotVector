@@ -136,7 +136,6 @@ jobs:
             "src/DotVector.Core/DotVector.Core.csproj"
             "src/DotVector.Data/DotVector.Data.csproj"
             "src/DotVector.Cli/DotVector.Cli.csproj"
-            "src/DotVector/DotVector.csproj"
           )
 
           for project in "${projects[@]}"; do
@@ -282,7 +281,7 @@ jobs:
           - examples/bin: published example binaries
 
           Docker image: docker.io/${{ env.DOCKERHUB_IMAGE }}:${{ needs.metadata.outputs.version }}
-          NuGet packages: DotVector, DotVector.Core, DotVector.Data, DotVector.Cli
+          NuGet packages: DotVector.Core, DotVector.Data, DotVector.Cli
           EOF
 
       - name: Compress release zip

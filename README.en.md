@@ -82,7 +82,7 @@ A fuller runnable sample lives in [`examples/csharp/QuickStart`](examples/csharp
 ## 🐳 Service and Release
 
 - Docker image: `iotsharp/dotvector`
-- NuGet packages: `DotVector`, `DotVector.Core`, `DotVector.Data`, `DotVector.Cli`
+- NuGet packages: `DotVector.Core`, `DotVector.Data`, `DotVector.Cli`
 - GitHub Release: includes connector artifacts and example archives
 
 Release details are documented in [`docs/release.md`](docs/release.md).

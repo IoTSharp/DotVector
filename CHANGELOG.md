@@ -13,7 +13,7 @@
   - `docs/release.md` 继续作为发布补充说明，保留 NuGet / Docker Hub / GitHub Release 的产物说明
 
 - PR #M9.1：M9.1 — 发布流水线覆盖 Docker Hub、NuGet 与 GitHub Release 资产
-  - `.github/workflows/publish.yml`：GitHub Release 发布时自动构建测试，打包并推送 `DotVector` / `DotVector.Core` / `DotVector.Data` / `DotVector.Cli` 到 nuget.org；构建并推送 `iotsharp/dotvector:<version>` Docker 镜像到 Docker Hub，正式版同步更新 `latest` 标签
+  - `.github/workflows/publish.yml`：GitHub Release 发布时自动构建测试，打包并推送 `DotVector.Core` / `DotVector.Data` / `DotVector.Cli` 到 nuget.org；`DotVector` 作为服务端宿主不发布 NuGet 包，仅构建并推送 `iotsharp/dotvector:<version>` Docker 镜像到 Docker Hub，正式版同步更新 `latest` 标签
   - `src/DotVector/Dockerfile`：接收发布流水线传入的版本号并写入 OCI image labels，便于 Docker Hub 展示与追踪
   - Release 资产上传：将 `.nupkg` / `.snupkg` 以及 `dotvector-<version>-connectors-examples.zip` 上传到 GitHub Release；压缩包包含 C native connector 发布产物、示例源码与示例发布产物
   - `examples/csharp/QuickStart`（新增）：提供可运行的内存集合插入与搜索示例，作为 Release 示例源码与发布产物来源

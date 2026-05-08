@@ -13,7 +13,7 @@ DotVector release publishing is handled by `.github/workflows/publish.yml`.
 Publishing a GitHub Release runs the full pipeline:
 
 - builds and tests the solution
-- packs and pushes `DotVector`, `DotVector.Core`, `DotVector.Data`, and `DotVector.Cli` to nuget.org
+- packs and pushes `DotVector.Core`, `DotVector.Data`, and `DotVector.Cli` to nuget.org
 - builds and pushes `iotsharp/dotvector:<version>` to Docker Hub
 - also tags `iotsharp/dotvector:latest` for non-prerelease releases
 - uploads NuGet packages, symbol packages, and `dotvector-<version>-connectors-examples.zip` to the GitHub Release

@@ -13,7 +13,7 @@
       DotVector.Cli 不引用本项目（AGENTS.md 强制约束），由本 exe 直接提供 serve 入口。
     -->
     <OutputType>Exe</OutputType>
-    <IsPackable>true</IsPackable>
+    <IsPackable>false</IsPackable>
     <Description>DotVector gRPC server host for running embedded DotVector.Core databases behind a remote API.</Description>
     <NoDefaultLaunchSettingsFile>true</NoDefaultLaunchSettingsFile>
     <PublishAot>false</PublishAot>

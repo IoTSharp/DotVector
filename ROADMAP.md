@@ -24,6 +24,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M12 | ✅ | DiskANN（Vamana 图）+ 磁盘驻留索引 |
 | M13 | ✅ | 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象 |
 | M14 | ✅ | 硬件加速接口：`IBatchScorer` 抽象（CE 仅保留 M14.1；具体加速后端见 [DotVectorEE](https://github.com/IoTSharp/DotVectorEE)）|
+| M16 | ⏳ | 开发体验补强：Code-First、服务端系统库、Vue3 管理台、文档站与示例 |
 
 ---
 
@@ -556,6 +557,77 @@ my-database.dvec/
 | Milestone | 内容 | 参考 |
 |-----------|------|------|
 | M15 | 分布式分片 — 一致性哈希路由，多节点扩展 | Milvus 分布式架构 |
+| M16 | 开发体验补强：Code-First 开发体验、服务端系统目录、管理 API、Vue3 管理台、文档站与多语言快速开始 | EF Core、Qdrant Console、Milvus Attu |
+
+---
+
+## ⏳ M16 — 开发体验 + 服务端管理面 + 文档站
+
+**背景**：DotVector 在 Segment 持久化、mmap、VectorData、gRPC、量化与 Vamana 上已经形成较完整的底层数据库能力；下一阶段应补齐开发者第一步体验、服务端系统库和管理台。M16 重点吸收成熟嵌入式库和向量数据库控制台常见的产品能力：Code-First 声明式建模、自动上下文、多向量字段、数据库生命周期管理、用户权限、可视化管理与多语言快速开始。
+
+**产品判断**：
+- DotVector 不把 SQL 作为第一优先级。管理面使用 gRPC / REST / CLI；数据面使用 SDK / VectorData / gRPC；过滤继续走 `Filter` AST 与 LINQ Expression 翻译。
+- 可在后续提供受限 SQL-like 查询语法作为 CLI / 管理台糖衣，但底层必须翻译到 `IDotVectorClient.SearchAsync`，不得引入大型 SQL parser 运行时依赖。
+- `.dvec/` 仍是唯一数据库持久化格式；JSON / XML 只作为导入导出和调试格式，不作为数据库主格式。
+
+**实现内容**：
+- **M16.1 Code-First 嵌入式体验**
+  - 新增 `[DotVectorKey]`、`[DotVectorVector]`、`[DotVectorIndex]` Attribute。
+  - 新增 `DotVectorDbContext` / `DotVectorSet<TEntity>`，自动发现集合属性并绑定到 `VectorDatabase`。
+  - 支持一个实体多个向量字段，每个字段可配置维度、Metric、IndexKind 与索引参数。
+  - 元数据访问器预编译，避免热路径反射；AOT 下提供显式 schema registration 兜底。
+- **M16.2 便捷查询 API**
+  - `SearchTop1`、`SearchByThreshold`、`Upsert`、`Find` / `Get` 便捷方法。
+  - 多向量字段查询可通过 selector 或字段名选择。
+  - 继续复用现有 `Filter` 与 VectorData LINQ 翻译器。
+- **M16.3 服务端系统目录**
+  - `DotVector` 服务端新增 `_system.dvec/`，记录 users、roles、database registry、database permissions、server metadata。
+  - 一个业务数据库实例对应一个独立 `DotVector.Core.VectorDatabase` 与一个 `.dvec/` 目录。
+  - 增加数据库生命周期管理：`CreateDatabase`、`OpenDatabase`、`ListDatabases`、`CloseDatabase`、`DeleteDatabase`。
+  - 权限模型至少覆盖 `Read`、`Write`、`Admin`，并记录审计时间戳。
+- **M16.4 管理 API / CLI**
+  - 扩展 gRPC 管理服务：database、user、role、permission、server info。
+  - `DotVector.Cli` 增加 `database create/list/open/delete`、`user create`、`grant`、`server info`。
+  - 保持 `DotVector.Data` 不直接引用 `DotVector` 服务端程序集。
+- **M16.5 Vue3 管理台**
+  - 新增 `web/admin` 或 `src/DotVector.Admin`：Vue3 + Vite。
+  - 管理数据库、集合、用户、权限、payload schema、索引参数。
+  - 提供向量查询调试页：输入向量 / JSON payload filter / topK，展示结果与分数。
+  - 服务端 Docker 镜像可选择托管静态管理台。
+- **M16.6 文档站与发布**
+  - `docs/` 作为 GitHub Pages 文档源，使用 `JekyllNet/action@v2.5` 构建并发布。
+  - 发布文档覆盖 NuGet、Docker、GitHub Release、Pages、组织级 API key。
+  - 固定 JekyllNet tool version，并保留 GitHub Pages artifact 部署步骤。
+- **M16.7 多语言快速开始**
+  - 以 `connectors/python/examples/basic_usage.py` 的体验为基准，补 Python、C、C# 三份快速开始。
+  - 根目录 `docker-compose.yml` / override 支持服务端、示例镜像、编译镜像组合运行。
+  - 示例覆盖：创建数据库、创建集合、入库、查询、过滤、关闭 / flush。
+- **M16.8 可选 KDTree**
+  - 作为低维小集合精确索引补充，目标维度 < 20，数据量 < 10K。
+  - 不进入默认索引选择；仅 Code-First Attribute 或显式 API 选择时启用。
+
+**验收标准**：
+- [ ] `DotVectorDbContext` 示例可在无服务端情况下创建 `.dvec/`，插入实体并搜索。
+- [ ] 多向量字段实体可分别按文本向量 / 图像向量检索，索引参数互不干扰。
+- [ ] 服务端可创建并打开多个数据库实例；每个实例落在独立 `.dvec/` 目录。
+- [ ] `_system.dvec/` 可持久化用户、角色、数据库注册表和权限，重启后恢复。
+- [ ] `DotVector.Data` 仍无对 `DotVector` 服务端程序集直接引用。
+- [ ] Vue3 管理台可完成数据库列表、集合列表、创建集合、插入记录、向量查询。
+- [ ] GitHub Pages 文档站构建成功，发布流水线仍可使用组织级 NuGet API key。
+- [ ] Python / C / C# 快速开始可通过 docker compose 运行或编译。
+- [ ] 所有新增 public API 有中文 XML 文档注释；无 `unsafe`。
+
+**PR 切分**：
+| PR | 内容 |
+|---|---|
+| #M16.1 | Code-First Attribute + `DotVectorDbContext` / `DotVectorSet<TEntity>` 最小闭环 |
+| #M16.2 | 多向量字段 + `SearchTop1` / `SearchByThreshold` / `Upsert` 便捷 API |
+| #M16.3 | 服务端 `_system.dvec/` + 数据库注册表 + 数据库生命周期管理 gRPC |
+| #M16.4 | 用户 / 角色 / 权限模型 + CLI 管理命令 |
+| #M16.5 | Vue3 管理台第一版 |
+| #M16.6 | GitHub Pages 文档站 + NuGet 组织 key 发布文档 |
+| #M16.7 | Python / C / C# 快速开始 + docker compose 示例矩阵 |
+| #M16.8 | KDTree 低维精确索引（可选） |
 
 ---
 

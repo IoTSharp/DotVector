@@ -1,0 +1,8 @@
+title: DotVector
+description: .NET 10 embedded vector database
+markdown: kramdown
+
+header_pages:
+  - index.md
+  - architecture.md
+  - release.md

@@ -153,21 +153,21 @@ jobs:
       - name: Push to nuget.org
         if: github.event_name == 'release' || inputs.publish_nuget
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_ORG_API_KEY: ${{ secrets.NUGET_ORG_API_KEY }}
         shell: bash
         run: |
-          if [[ -z "$NUGET_API_KEY" ]]; then
-            echo "NUGET_API_KEY secret is required to publish packages." >&2
+          if [[ -z "$NUGET_ORG_API_KEY" ]]; then
+            echo "NUGET_ORG_API_KEY secret is required to publish packages with the organization API key." >&2
             exit 1
           fi
 
           dotnet nuget push "artifacts/nupkgs/*.nupkg" \
-            --api-key "$NUGET_API_KEY" \
+            --api-key "$NUGET_ORG_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
           dotnet nuget push "artifacts/nupkgs/*.snupkg" \
-            --api-key "$NUGET_API_KEY" \
+            --api-key "$NUGET_ORG_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 

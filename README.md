@@ -1,6 +1,8 @@
 # 🚀 DotVector
 
 [![CI](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml/badge.svg)](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml)
+[![Docs](https://github.com/IoTSharp/DotVector/actions/workflows/pages.yml/badge.svg)](https://github.com/IoTSharp/DotVector/actions/workflows/pages.yml)
+[![NuGet Core](https://img.shields.io/nuget/v/DotVector.Core?label=DotVector.Core)](https://www.nuget.org/packages/DotVector.Core)
 [![Docker Pulls](https://img.shields.io/docker/pulls/iotsharp/dotvector)](https://hub.docker.com/r/iotsharp/dotvector)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -20,6 +22,12 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 - 服务器模式：通过 `DotVector` 服务端宿主对外提供 gRPC 接口
 
 仓库当前覆盖了数据库引擎、客户端适配、命令行工具、服务端宿主、连接器和示例代码。
+
+项目边界保持清晰：
+
+- `DotVector.Core` 是完整的嵌入式数据库引擎，一个 `VectorDatabase` 实例对应一个 `.dvec/` 数据库目录。
+- `DotVector` 是服务端壳，用于在一个进程内托管多个 Core 数据库实例，并对外提供远程访问能力。
+- `DotVector.Data` 是客户端 SDK 与 `Microsoft.Extensions.VectorData` 适配层，可走本地嵌入式，也可连接远程服务端。
 
 ---
 
@@ -82,6 +90,8 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 
 - Docker 镜像：`iotsharp/dotvector`
 - GitHub Release：同时附带连接器产物与示例压缩包
+- 文档站：使用 [`JekyllNet`](https://github.com/JekyllNet/JekyllNet) 构建并发布到 GitHub Pages
+- NuGet 发布：使用组织级 `NUGET_ORG_API_KEY` secret
 
 发布说明见 [`docs/release.md`](docs/release.md)。
 
@@ -93,7 +103,21 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 - `connectors/`：原生连接器
 - `examples/`：示例工程
 - `tests/`：单元、集成、精度、基准测试
-- `docs/`：架构、算法、发布说明
+- `docs/`：架构、算法、发布说明与产品定位
+
+---
+
+## 🧭 后续方向
+
+DotVector 的底层引擎已经覆盖索引、持久化、量化、VectorData 与服务端部署；后续会继续补强开发体验和服务端管理面：
+
+- Code-First / Attribute 建模
+- 服务端 `_system.dvec/` 系统目录
+- 数据库创建、连接、用户和权限管理
+- Vue3 管理台
+- Python / C / C# 多语言快速开始
+
+相关规划已写入 [`ROADMAP.md`](ROADMAP.md) 的 M16。
 
 ---
 

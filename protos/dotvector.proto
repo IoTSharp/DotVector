@@ -71,6 +71,11 @@ message CollectionInfo {
   int64 record_count = 4;
 }
 
+message DatabaseSelector {
+  // 为空时使用服务端默认数据库 "default"。
+  string database = 1;
+}
+
 // ----------------------------------------------------------------------------
 // RPC payloads
 // ----------------------------------------------------------------------------
@@ -82,24 +87,30 @@ message CreateCollectionRequest {
   string name = 1;
   int32 dimensions = 2;
   string metric = 3;
+  DatabaseSelector selector = 4;
 }
 message CreateCollectionResponse {}
 
-message DeleteCollectionRequest { string name = 1; }
+message DeleteCollectionRequest {
+  string name = 1;
+  DatabaseSelector selector = 2;
+}
 message DeleteCollectionResponse {}
 
-message ListCollectionsRequest {}
+message ListCollectionsRequest { DatabaseSelector selector = 1; }
 message ListCollectionsResponse { repeated CollectionInfo collections = 1; }
 
 message UpsertRequest {
   string collection = 1;
   repeated UpsertRecord records = 2;
+  DatabaseSelector selector = 3;
 }
 message UpsertResponse { int32 count = 1; }
 
 message DeleteRequest {
   string collection = 1;
   repeated string ids = 2;
+  DatabaseSelector selector = 3;
 }
 message DeleteResponse { int32 count = 1; }
 
@@ -109,6 +120,7 @@ message SearchRequest {
   int32 top_k = 3;
   bool include_vector = 4;
   bytes filter = 5;                // 可空，FilterCodec 编码
+  DatabaseSelector selector = 6;
 }
 message SearchResponse { repeated ScoredRecord hits = 1; }
 
@@ -116,6 +128,7 @@ message GetRequest {
   string collection = 1;
   repeated string ids = 2;
   bool include_vector = 3;
+  DatabaseSelector selector = 4;
 }
 message GetResponse { repeated VectorRecord records = 1; }
 
@@ -124,5 +137,6 @@ message ScrollRequest {
   int32 top = 2;
   bool include_vector = 3;
   bytes filter = 4;                // FilterCodec 编码（必填）
+  DatabaseSelector selector = 5;
 }
 message ScrollResponse { repeated VectorRecord records = 1; }

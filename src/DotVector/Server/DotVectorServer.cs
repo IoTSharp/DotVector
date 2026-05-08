@@ -19,7 +19,7 @@ public static class DotVectorServer
     /// <summary>
     /// 使用指定数据目录与端口构建 gRPC 宿主 <see cref="WebApplication"/>。
     /// </summary>
-    /// <param name="dataDirectory">数据库根目录，对应一个 <c>.dvec</c> 实例。</param>
+    /// <param name="dataDirectory">服务端数据根目录，包含 <c>system/</c> 元数据与多个 <c>.dvec</c> 数据库实例。</param>
     /// <param name="port">gRPC 监听端口，默认 5180；传 0 时由 OS 分配。</param>
     /// <param name="args">可选的命令行参数（透传给 <see cref="WebApplication.CreateBuilder(string[])"/>）。</param>
     /// <param name="loopbackOnly">是否仅监听本地回环地址；默认 <c>false</c>，监听任意地址。</param>
@@ -63,15 +63,14 @@ public static class DotVectorServer
             }
         });
 
-        var database = new VectorDatabase(dataDirectory);
-        builder.Services.AddSingleton(database);
-        builder.Services.AddSingleton(sp => new LocalDotVectorClient(sp.GetRequiredService<VectorDatabase>(), ownsDatabase: false));
+        var registry = new DotVectorDatabaseRegistry(dataDirectory);
+        builder.Services.AddSingleton(registry);
         builder.Services.AddSingleton<VectorServiceImpl>();
         builder.Services.AddGrpc();
 
         WebApplication app = builder.Build();
         app.MapGrpcService<VectorServiceImpl>();
-        app.Lifetime.ApplicationStopped.Register(() => database.Dispose());
+        app.Lifetime.ApplicationStopped.Register(() => registry.Dispose());
         return app;
     }
 }

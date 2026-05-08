@@ -43,6 +43,7 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     private readonly GrpcChannel _channel;
     private readonly bool _ownsChannel;
     private readonly VectorService.VectorServiceClient _client;
+    private readonly string? _databaseName;
 
     /// <summary>
     /// 通过远端服务地址（例如 <c>http://localhost:5180</c>）构建客户端。
@@ -50,6 +51,17 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     /// <param name="address">gRPC 服务端地址。</param>
     /// <param name="options">可选的 <see cref="GrpcChannelOptions"/>。</param>
     public GrpcDotVectorClient(Uri address, GrpcChannelOptions? options = null)
+        : this(address, databaseName: null, options)
+    {
+    }
+
+    /// <summary>
+    /// 通过远端服务地址与数据库名称构建客户端。
+    /// </summary>
+    /// <param name="address">gRPC 服务端地址。</param>
+    /// <param name="databaseName">服务端数据库名称；当前协议暂未传输该值，保留用于后续多数据库扩展。</param>
+    /// <param name="options">可选的 <see cref="GrpcChannelOptions"/>。</param>
+    public GrpcDotVectorClient(Uri address, string? databaseName, GrpcChannelOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(address);
 
@@ -75,18 +87,35 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
         _channel = GrpcChannel.ForAddress(address, options);
         _ownsChannel = true;
         _client = new VectorService.VectorServiceClient(_channel);
+        _databaseName = NormalizeDatabaseName(databaseName);
     }
 
     /// <summary>
     /// 使用调用者构造的 <see cref="GrpcChannel"/>（不被本类型释放）。
     /// </summary>
     public GrpcDotVectorClient(GrpcChannel channel)
+        : this(channel, databaseName: null)
+    {
+    }
+
+    /// <summary>
+    /// 使用调用者构造的 <see cref="GrpcChannel"/> 与数据库名称（通道不被本类型释放）。
+    /// </summary>
+    /// <param name="channel">调用者持有的 gRPC 通道。</param>
+    /// <param name="databaseName">服务端数据库名称；当前协议暂未传输该值，保留用于后续多数据库扩展。</param>
+    public GrpcDotVectorClient(GrpcChannel channel, string? databaseName)
     {
         ArgumentNullException.ThrowIfNull(channel);
         _channel = channel;
         _ownsChannel = false;
         _client = new VectorService.VectorServiceClient(_channel);
+        _databaseName = NormalizeDatabaseName(databaseName);
     }
+
+    /// <summary>
+    /// 返回此客户端绑定的服务端数据库名称。为空表示服务端默认数据库。
+    /// </summary>
+    public string? DatabaseName => _databaseName;
 
     /// <inheritdoc />
     public async ValueTask<bool> PingAsync(CancellationToken cancellationToken = default)
@@ -105,6 +134,7 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
                 Name = request.Name,
                 Dimensions = request.Dimensions,
                 Metric = request.Metric,
+                Selector = BuildSelector(),
             }, cancellationToken: cancellationToken);
     }
 
@@ -112,13 +142,17 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     public async ValueTask DeleteCollectionAsync(string collectionName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(collectionName);
-        await _client.DeleteCollectionAsync(new DeleteCollectionRequest { Name = collectionName }, cancellationToken: cancellationToken);
+        await _client.DeleteCollectionAsync(
+            new DeleteCollectionRequest { Name = collectionName, Selector = BuildSelector() },
+            cancellationToken: cancellationToken);
     }
 
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<DotVector.Core.Protocol.CollectionInfo>> ListCollectionsAsync(CancellationToken cancellationToken = default)
     {
-        ListCollectionsResponse resp = await _client.ListCollectionsAsync(new ListCollectionsRequest(), cancellationToken: cancellationToken);
+        ListCollectionsResponse resp = await _client.ListCollectionsAsync(
+            new ListCollectionsRequest { Selector = BuildSelector() },
+            cancellationToken: cancellationToken);
         var list = new List<DotVector.Core.Protocol.CollectionInfo>(resp.Collections.Count);
         foreach (DotVector.Grpc.CollectionInfo c in resp.Collections)
         {
@@ -132,7 +166,7 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     {
         ArgumentException.ThrowIfNullOrEmpty(collectionName);
         ArgumentNullException.ThrowIfNull(records);
-        var req = new UpsertRequest { Collection = collectionName };
+        var req = new UpsertRequest { Collection = collectionName, Selector = BuildSelector() };
         foreach (VectorUpsertRecord r in records)
         {
             var ur = new UpsertRecord { Id = r.Id, Vector = FloatsToBytes(r.Vector) };
@@ -147,7 +181,7 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     {
         ArgumentException.ThrowIfNullOrEmpty(collectionName);
         ArgumentNullException.ThrowIfNull(ids);
-        var req = new DeleteRequest { Collection = collectionName };
+        var req = new DeleteRequest { Collection = collectionName, Selector = BuildSelector() };
         req.Ids.AddRange(ids);
         await _client.DeleteAsync(req, cancellationToken: cancellationToken);
     }
@@ -164,6 +198,7 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
             TopK = request.TopK,
             IncludeVector = request.IncludeVector,
             Filter = request.Filter is null ? ByteString.Empty : ByteString.CopyFrom(FilterCodec.Encode(request.Filter)),
+            Selector = BuildSelector(),
         };
         SearchResponse resp = await _client.SearchAsync(req, cancellationToken: cancellationToken);
         var list = new List<VectorSearchResult>(resp.Hits.Count);
@@ -184,7 +219,7 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     {
         ArgumentException.ThrowIfNullOrEmpty(collectionName);
         ArgumentNullException.ThrowIfNull(ids);
-        var req = new GetRequest { Collection = collectionName, IncludeVector = includeVector };
+        var req = new GetRequest { Collection = collectionName, IncludeVector = includeVector, Selector = BuildSelector() };
         req.Ids.AddRange(ids);
         GetResponse resp = await _client.GetAsync(req, cancellationToken: cancellationToken);
         return MapRecords(resp.Records);
@@ -201,6 +236,7 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
             Top = request.Top,
             IncludeVector = request.IncludeVector,
             Filter = ByteString.CopyFrom(FilterCodec.Encode(request.Filter)),
+            Selector = BuildSelector(),
         };
         ScrollResponse resp = await _client.ScrollAsync(req, cancellationToken: cancellationToken);
         return MapRecords(resp.Records);
@@ -214,6 +250,12 @@ public sealed class GrpcDotVectorClient : IDotVectorClient
     }
 
     // ---- helpers ----
+
+    private DatabaseSelector BuildSelector()
+        => new() { Database = _databaseName ?? string.Empty };
+
+    private static string? NormalizeDatabaseName(string? databaseName)
+        => string.IsNullOrWhiteSpace(databaseName) ? null : databaseName.Trim();
 
     private static IReadOnlyList<VectorRecordDto> MapRecords(RepeatedField<DotVector.Grpc.VectorRecord> records)
     {

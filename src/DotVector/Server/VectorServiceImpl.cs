@@ -15,36 +15,36 @@ namespace DotVector.Server;
 /// </summary>
 internal sealed class VectorServiceImpl : VectorService.VectorServiceBase
 {
-    private readonly LocalDotVectorClient _client;
+    private readonly DotVectorDatabaseRegistry _registry;
 
-    public VectorServiceImpl(LocalDotVectorClient client)
+    public VectorServiceImpl(DotVectorDatabaseRegistry registry)
     {
-        _client = client;
+        _registry = registry;
     }
 
     public override async Task<PingResponse> Ping(PingRequest request, ServerCallContext context)
     {
-        bool ok = await _client.PingAsync(context.CancellationToken).ConfigureAwait(false);
+        bool ok = await GetClient(null).PingAsync(context.CancellationToken).ConfigureAwait(false);
         return new PingResponse { Ok = ok };
     }
 
     public override async Task<CreateCollectionResponse> CreateCollection(DotVector.Grpc.CreateCollectionRequest request, ServerCallContext context)
     {
         var dto = new DotVector.Core.Protocol.CreateCollectionRequest(request.Name, request.Dimensions, request.Metric);
-        await _client.CreateCollectionAsync(dto, context.CancellationToken).ConfigureAwait(false);
+        await GetClient(request.Selector).CreateCollectionAsync(dto, context.CancellationToken).ConfigureAwait(false);
         return new CreateCollectionResponse();
     }
 
     public override async Task<DeleteCollectionResponse> DeleteCollection(DeleteCollectionRequest request, ServerCallContext context)
     {
-        await _client.DeleteCollectionAsync(request.Name, context.CancellationToken).ConfigureAwait(false);
+        await GetClient(request.Selector).DeleteCollectionAsync(request.Name, context.CancellationToken).ConfigureAwait(false);
         return new DeleteCollectionResponse();
     }
 
     public override async Task<ListCollectionsResponse> ListCollections(ListCollectionsRequest request, ServerCallContext context)
     {
         IReadOnlyList<DotVector.Core.Protocol.CollectionInfo> infos =
-            await _client.ListCollectionsAsync(context.CancellationToken).ConfigureAwait(false);
+            await GetClient(request.Selector).ListCollectionsAsync(context.CancellationToken).ConfigureAwait(false);
         var resp = new ListCollectionsResponse();
         foreach (DotVector.Core.Protocol.CollectionInfo i in infos)
         {
@@ -70,14 +70,14 @@ internal sealed class VectorServiceImpl : VectorService.VectorServiceBase
             };
             list.Add(rec);
         }
-        await _client.UpsertAsync(request.Collection, list, context.CancellationToken).ConfigureAwait(false);
+        await GetClient(request.Selector).UpsertAsync(request.Collection, list, context.CancellationToken).ConfigureAwait(false);
         return new UpsertResponse { Count = list.Count };
     }
 
     public override async Task<DeleteResponse> Delete(DeleteRequest request, ServerCallContext context)
     {
         var ids = new List<string>(request.Ids);
-        await _client.DeleteAsync(request.Collection, ids, context.CancellationToken).ConfigureAwait(false);
+        await GetClient(request.Selector).DeleteAsync(request.Collection, ids, context.CancellationToken).ConfigureAwait(false);
         return new DeleteResponse { Count = ids.Count };
     }
 
@@ -89,7 +89,7 @@ internal sealed class VectorServiceImpl : VectorService.VectorServiceBase
             Filter = request.Filter.IsEmpty ? null : FilterCodec.Decode(request.Filter.ToByteArray()),
         };
         IReadOnlyList<VectorSearchResult> hits =
-            await _client.SearchAsync(request.Collection, dto, context.CancellationToken).ConfigureAwait(false);
+            await GetClient(request.Selector).SearchAsync(request.Collection, dto, context.CancellationToken).ConfigureAwait(false);
 
         var resp = new SearchResponse();
         foreach (VectorSearchResult h in hits)
@@ -105,7 +105,7 @@ internal sealed class VectorServiceImpl : VectorService.VectorServiceBase
     public override async Task<GetResponse> Get(GetRequest request, ServerCallContext context)
     {
         IReadOnlyList<VectorRecordDto> records =
-            await _client.GetAsync(request.Collection, request.Ids, request.IncludeVector, context.CancellationToken)
+            await GetClient(request.Selector).GetAsync(request.Collection, request.Ids, request.IncludeVector, context.CancellationToken)
                 .ConfigureAwait(false);
         var resp = new GetResponse();
         foreach (VectorRecordDto r in records)
@@ -127,7 +127,7 @@ internal sealed class VectorServiceImpl : VectorService.VectorServiceBase
         Filter filter = FilterCodec.Decode(request.Filter.ToByteArray());
         var dto = new VectorScrollRequest(filter, request.Top) { IncludeVector = request.IncludeVector };
         IReadOnlyList<VectorRecordDto> records =
-            await _client.ScrollAsync(request.Collection, dto, context.CancellationToken).ConfigureAwait(false);
+            await GetClient(request.Selector).ScrollAsync(request.Collection, dto, context.CancellationToken).ConfigureAwait(false);
         var resp = new ScrollResponse();
         foreach (VectorRecordDto r in records)
         {
@@ -140,6 +140,9 @@ internal sealed class VectorServiceImpl : VectorService.VectorServiceBase
     }
 
     // ---- 转换辅助 ----
+
+    private LocalDotVectorClient GetClient(DatabaseSelector? selector)
+        => _registry.GetClient(selector?.Database);
 
     internal static float[] BytesToFloats(ByteString bytes)
     {

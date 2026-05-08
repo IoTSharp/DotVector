@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77.0", "grpcio-tools>=1.80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dotvector"
+description = "Python gRPC and native ctypes connector for DotVector embedded vector database"
+version = "0.2.0"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "grpcio>=1.80",
+    "protobuf>=6.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "grpcio-tools>=1.80",
+]

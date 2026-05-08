@@ -1,14 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Library</OutputType>
     <AssemblyName>DotVector.Native</AssemblyName>
     <RootNamespace>DotVector.Native</RootNamespace>
-    <!-- C ABI 连接器：将来启用 NativeExports，暂保持 AOT 兼容 -->
+    <!-- C ABI 连接器通过 NativeAOT 发布为可被 C / Python ctypes 加载的动态库。 -->
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <StripSymbols>true</StripSymbols>
+    <IsPackable>false</IsPackable>
+    <!-- 显式声明本连接器支持的 NativeAOT 运行时；CMake 通过 -r &lt;rid&gt; 参数选择其一。 -->
+    <RuntimeIdentifiers>win-x64;win-x86;win-arm64;linux-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\src\DotVector\DotVector.csproj" />
+    <ProjectReference Include="..\..\..\..\src\DotVector.Data\DotVector.Data.csproj" />
   </ItemGroup>
 
 </Project>

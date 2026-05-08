@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>DotVector.VectorData</AssemblyName>
+    <RootNamespace>DotVector.VectorData</RootNamespace>
+    <!--
+      Microsoft.Extensions.VectorData 适配层（M7）。
+      该项目通过反射映射 POCO、翻译 LINQ Filter，因此保留 AOT 分析注解，
+      但不承担底层连接器职责。
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotVector.Data\DotVector.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotVector.Tests" />
+  </ItemGroup>
+
+</Project>

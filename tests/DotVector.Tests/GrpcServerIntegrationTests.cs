@@ -115,6 +115,50 @@ public sealed class GrpcServerIntegrationTests : IAsyncLifetime
         Assert.DoesNotContain(after, c => c.Name == name);
     }
 
+    [Fact]
+    public async Task NamedDatabase_CreateCollection_IsIsolatedFromDefaultDatabase()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+            UseProxy = false,
+            Proxy = null,
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (_, _, _, _) => true,
+            },
+        };
+        var channelOptions = new GrpcChannelOptions { HttpHandler = handler, DisposeHttpClient = true };
+
+        await using GrpcDotVectorClient defaultClient = new(new Uri(_endpoint), channelOptions);
+
+        var tenantHandler = new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+            UseProxy = false,
+            Proxy = null,
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (_, _, _, _) => true,
+            },
+        };
+        var tenantChannelOptions = new GrpcChannelOptions { HttpHandler = tenantHandler, DisposeHttpClient = true };
+        await using GrpcDotVectorClient tenantClient = new(new Uri(_endpoint), "tenant_a", tenantChannelOptions);
+
+        const string collectionName = "shared-name";
+        await tenantClient.CreateCollectionAsync(new CreateCollectionRequest(collectionName, dimensions: 3, metric: "Cosine"));
+
+        IReadOnlyList<CollectionInfo> tenantCollections = await tenantClient.ListCollectionsAsync();
+        Assert.Contains(tenantCollections, c => c.Name == collectionName);
+
+        IReadOnlyList<CollectionInfo> defaultCollections = await defaultClient.ListCollectionsAsync();
+        Assert.DoesNotContain(defaultCollections, c => c.Name == collectionName);
+
+        Assert.True(Directory.Exists(Path.Combine(_dataDir, "system")));
+        Assert.True(File.Exists(Path.Combine(_dataDir, "system", "databases.json")));
+        Assert.True(Directory.Exists(Path.Combine(_dataDir, "databases", "tenant_a.dvec")));
+    }
+
     private static X509Certificate2 CreateSelfSignedCertificate()
     {
         using RSA rsa = RSA.Create(2048);

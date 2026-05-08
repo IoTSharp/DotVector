@@ -8,6 +8,8 @@
 
 ### Added
 
+- 恢复历史 C / Python 连接器与 `DotVector.VectorData` 项目源码；恢复 `DotVector.Data` 高层客户端门面，并补回服务端多数据库 selector/registry 的 gRPC 路由与隔离测试。
+
 - PR #M16.6：M16 — 开发体验规划、文档站、组织级 NuGet 发布与 README 增补
   - `README.md`：在原有项目门面基础上增补 `DotVector.Core` 嵌入式引擎、`DotVector` 服务端宿主、`DotVector.Data` 客户端 / VectorData 适配三层职责，以及文档站和组织级 NuGet 发布说明
   - `ROADMAP.md`：新增 M16 开发体验补强 milestone，覆盖 Code-First、便捷查询 API、服务端 `_system.dvec/`、管理 API / CLI、Vue3 管理台、文档站、多语言快速开始与可选 KDTree

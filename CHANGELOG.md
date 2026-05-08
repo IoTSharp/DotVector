@@ -10,6 +10,8 @@
 
 - `src/DotVector.Data` 客户端 SDK 项目显式设置 NuGet `PackageId=DotVector`，发布产物从 `DotVector.Data` 包名调整为 `DotVector`，程序集名与命名空间保持 `DotVector.Data` 不变。
 
+- 修复 `tests/DotVector.Tests` 在 CI 构建 `GrpcServerIntegrationTests` 时缺少 ASP.NET Core framework reference 的问题，并将 Microsoft.Extensions Abstractions 版本对齐到 .NET 10。
+
 - 文档站视觉设计：新增 JekyllNet `default` layout、静态样式与 DotVector 向量网络首屏视觉资源，首页改为面向向量 AI / 嵌入式数据库的导航入口，同时保持 `JekyllNet/action@v2.5` 可构建。
 
 - GitHub Pages 文档站配置子目录发布：`docs/_config.yml` 设置 `url: https://iotsharp.net` 与 `baseurl: /DotVector`，文档首页和发布说明同步公开地址 `https://iotsharp.net/DotVector/`，首页站内链接改为 `/DotVector/.../`。

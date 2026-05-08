@@ -281,7 +281,7 @@ jobs:
           - examples/bin: published example binaries
 
           Docker image: docker.io/${{ env.DOCKERHUB_IMAGE }}:${{ needs.metadata.outputs.version }}
-          NuGet packages: DotVector.Core, DotVector.Data, DotVector.Cli
+          NuGet packages: DotVector.Core, DotVector, DotVector.Cli
           EOF
 
       - name: Compress release zip

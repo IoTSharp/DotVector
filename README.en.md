@@ -1,6 +1,8 @@
 # 🚀 DotVector
 
 [![CI](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml/badge.svg)](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/DotVector?label=DotVector)](https://www.nuget.org/packages/DotVector)
+[![NuGet Core](https://img.shields.io/nuget/v/DotVector.Core?label=DotVector.Core)](https://www.nuget.org/packages/DotVector.Core)
 [![Docker Pulls](https://img.shields.io/docker/pulls/iotsharp/dotvector)](https://hub.docker.com/r/iotsharp/dotvector)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -25,7 +27,7 @@ The main boundaries are:
 
 - `DotVector.Core` is the embedded engine: `VectorDatabase`, `LocalDotVectorClient`, indexes, storage, query, protocol DTOs, and distance kernels.
 - `DotVector` is the gRPC server host and Docker image, not a NuGet client package.
-- `DotVector.Data` is the published client SDK, including the high-level `DotVectorClient`, gRPC client, embedded factory, and `Microsoft.Extensions.VectorData` adapter.
+- `DotVector.Data` is the client SDK project and publishes as the `DotVector` NuGet package, including the high-level `DotVectorClient`, gRPC client, embedded factory, and `Microsoft.Extensions.VectorData` adapter.
 - `DotVector.VectorData` is kept as a standalone VectorData adapter project for compatibility and future split-out work.
 - `connectors/c` and `connectors/python` provide the C ABI and Python gRPC / native ctypes paths.
 
@@ -62,9 +64,9 @@ The main boundaries are:
 | Name | Label | Downloads | Version | Role |
 |------|-------|-----------|---------|------|
 | `DotVector.Core` | ![Core](https://img.shields.io/badge/Core-Engine-blue) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Core) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Core) | Embedded core engine for vector database, indexing, storage, query, and distance computation. |
-| `DotVector.Data` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Data) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Data) | Client SDK and `Microsoft.Extensions.VectorData` adapter for local or remote DotVector access. |
+| `DotVector` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector) | Client SDK and `Microsoft.Extensions.VectorData` adapter, packed from `src/DotVector.Data`, for local or remote DotVector access. |
 | `DotVector.Cli` | ![CLI](https://img.shields.io/badge/CLI-Tool-orange) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Cli) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Cli) | Command-line tool for connecting to the DotVector gRPC service and managing collections. |
-| `DotVector` | ![Server](https://img.shields.io/badge/Server-gRPC-lightgrey) |  |  | Server host shipped as a Docker image, not as a NuGet package. |
+| `iotsharp/dotvector` | ![Server](https://img.shields.io/badge/Server-gRPC-lightgrey) |  |  | Server host Docker image; the source project is `src/DotVector` and is not packed as a NuGet package. |
 | `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | NativeAOT shared library exposing the stable C ABI for embedded and remote handles. |
 | `connectors/python` | ![Connector](https://img.shields.io/badge/Connector-Python-lightgrey) |  |  | Python gRPC client and native ctypes client. |
 

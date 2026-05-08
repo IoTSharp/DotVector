@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml/badge.svg)](https://github.com/IoTSharp/DotVector/actions/workflows/ci.yml)
 [![Docs](https://github.com/IoTSharp/DotVector/actions/workflows/pages.yml/badge.svg)](https://github.com/IoTSharp/DotVector/actions/workflows/pages.yml)
+[![NuGet](https://img.shields.io/nuget/v/DotVector?label=DotVector)](https://www.nuget.org/packages/DotVector)
 [![NuGet Core](https://img.shields.io/nuget/v/DotVector.Core?label=DotVector.Core)](https://www.nuget.org/packages/DotVector.Core)
 [![Docker Pulls](https://img.shields.io/docker/pulls/iotsharp/dotvector)](https://hub.docker.com/r/iotsharp/dotvector)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -27,8 +28,8 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 
 - `DotVector.Core` 是完整的嵌入式数据库引擎，包含 `VectorDatabase`、`LocalDotVectorClient`、索引、存储、查询、协议 DTO 和距离计算；一个 `VectorDatabase` 实例对应一个 `.dvec/` 数据库目录。
 - `DotVector` 是服务端壳，用于在一个进程内托管多个 Core 数据库实例，并对外提供远程访问能力。
-- `DotVector.Data` 是发布用客户端 SDK，包含高层 `DotVectorClient`、gRPC 客户端、嵌入式工厂和 `Microsoft.Extensions.VectorData` 适配。
-- `DotVector.VectorData` 是仓库中保留的独立 VectorData 适配项目，便于后续拆分/兼容演进；当前主要发布门面是 `DotVector.Data`。
+- `DotVector.Data` 是客户端 SDK 项目，NuGet 包名为 `DotVector`，包含高层 `DotVectorClient`、gRPC 客户端、嵌入式工厂和 `Microsoft.Extensions.VectorData` 适配。
+- `DotVector.VectorData` 是仓库中保留的独立 VectorData 适配项目，便于后续拆分/兼容演进；当前主要发布门面是 `DotVector` NuGet 包。
 - `connectors/c` 与 `connectors/python` 提供 C ABI、Python gRPC / Native ctypes 两条跨语言接入路径。
 
 ---
@@ -64,9 +65,9 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 | 名称 | 小标签 | 下载量 | 版本号 | 作用 |
 |------|--------|--------|--------|------|
 | `DotVector.Core` | ![Core](https://img.shields.io/badge/Core-Engine-blue) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Core) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Core) | 嵌入式核心引擎，提供向量数据库、索引、存储、查询与距离计算能力。 |
-| `DotVector.Data` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Data) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Data) | 客户端 SDK 与 `Microsoft.Extensions.VectorData` 适配层，用于本地或远程访问 DotVector。 |
+| `DotVector` | ![Data](https://img.shields.io/badge/Data-Client-green) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector) | 客户端 SDK 与 `Microsoft.Extensions.VectorData` 适配层，由 `src/DotVector.Data` 项目打包，用于本地或远程访问 DotVector。 |
 | `DotVector.Cli` | ![CLI](https://img.shields.io/badge/CLI-Tool-orange) | ![NuGet Downloads](https://img.shields.io/nuget/dt/DotVector.Cli) | ![NuGet Version](https://img.shields.io/nuget/v/DotVector.Cli) | 命令行工具，用于连接 DotVector gRPC 服务、管理集合与执行基础操作。 |
-| `DotVector` | ![Server](https://img.shields.io/badge/Server-gRPC-lightgrey) |  |  | 服务端宿主，作为 Docker 镜像发布，不作为 NuGet 包发布。 |
+| `iotsharp/dotvector` | ![Server](https://img.shields.io/badge/Server-gRPC-lightgrey) |  |  | 服务端宿主 Docker 镜像；源码项目为 `src/DotVector`，不作为 NuGet 包发布。 |
 | `connectors/c/native` | ![Connector](https://img.shields.io/badge/Connector-C%20ABI-lightgrey) |  |  | NativeAOT 共享库，暴露稳定 C ABI，支持嵌入式与远程句柄。 |
 | `connectors/python` | ![Connector](https://img.shields.io/badge/Connector-Python-lightgrey) |  |  | Python gRPC 客户端与 ctypes Native 客户端。 |
 

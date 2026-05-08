@@ -1,3 +1,8 @@
+---
+title: .NET 10 在向量数据库方向的优势
+layout: default
+---
+
 # .NET 10 在向量数据库方向的优势
 
 本文系统讲清 .NET 10 为何是实现嵌入式向量数据库的优秀选择，逐项分析与 Rust（Qdrant）/ C++（FAISS、Milvus 内核）/ Go（Milvus 协调层）/ C（pgvector）的取舍对比。

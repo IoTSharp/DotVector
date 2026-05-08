@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <PackageId>DotVector</PackageId>
     <AssemblyName>DotVector.Data</AssemblyName>
     <RootNamespace>DotVector.Data</RootNamespace>
     <IsPackable>true</IsPackable>

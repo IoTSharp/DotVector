@@ -1,3 +1,8 @@
+---
+title: DotVector 架构总览
+layout: default
+---
+
 # DotVector 架构总览
 
 本文档描述 DotVector 的整体架构分层设计，以及**客户端/服务端分离**原则。
@@ -137,7 +142,7 @@ graph TD
 
 ### 客户端适配层（`src/DotVector.Data/`）
 
-发布用客户端 SDK。提供高层 `DotVectorClient`、`GrpcDotVectorClient`、嵌入式工厂，以及 `Microsoft.Extensions.VectorData.Abstractions` 适配（M7）。
+客户端 SDK 项目，NuGet 包名为 `DotVector`。提供高层 `DotVectorClient`、`GrpcDotVectorClient`、嵌入式工厂，以及 `Microsoft.Extensions.VectorData.Abstractions` 适配（M7）。
 
 **不引用** `DotVector`（服务端）程序集。
 
@@ -152,7 +157,7 @@ LocalDotVectorClient（M9，位于 DotVector.Core，供进程内嵌入式使用�
 
 ### 独立 VectorData 适配（`src/DotVector.VectorData/`）
 
-保留的独立 VectorData 适配项目，源码与 `DotVector.Data` 适配层保持接近，用于兼容演进和未来拆分。当前主要发布门面是 `DotVector.Data`。
+保留的独立 VectorData 适配项目，源码与 `DotVector.Data` 适配层保持接近，用于兼容演进和未来拆分。当前主要发布门面是 `DotVector` NuGet 包。
 
 ### 服务端宿主（`src/DotVector/`）
 

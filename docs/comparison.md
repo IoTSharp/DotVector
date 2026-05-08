@@ -1,3 +1,8 @@
+---
+title: DotVector 与同类产品对比
+layout: default
+---
+
 # DotVector 与同类产品对比
 
 本表从多个维度对比 DotVector 与主流向量数据库，帮助用户选择合适的工具。

@@ -23,9 +23,9 @@
 
   <ItemGroup>
     <!--
-      CLI 仅引用客户端 SDK（DotVector.Data），同时支持：
+      CLI 仅引用客户端 SDK 项目（src/DotVector.Data，NuGet 包名 DotVector），同时支持：
         - 当前命令面：GrpcDotVectorClient → DotVector（gRPC server）
-        - 后续本地命令：可经 DotVector.Data 的 Embedded 工厂进入 DotVector.Core
+        - 后续本地命令：可经客户端 SDK 的 Embedded 工厂进入 DotVector.Core
       不直接引用 DotVector（服务端壳）与 DotVector.Core（嵌入式引擎）。
     -->
     <ProjectReference Include="..\DotVector.Data\DotVector.Data.csproj" />

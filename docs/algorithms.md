@@ -1,3 +1,8 @@
+---
+title: 算法参考清单
+layout: default
+---
+
 # 算法参考清单
 
 本文列出 DotVector 在各 Milestone 计划学习和参考的向量索引算法，逐条注明出处、论文链接与源码链接。

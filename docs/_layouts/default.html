@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{ site.description }}">
+  <title>{{ page.title }} | {{ site.title }}</title>
+  <link rel="stylesheet" href="{{ site.baseurl }}/assets/css/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">跳到正文</a>
+
+  <header class="site-header">
+    <nav class="site-nav" aria-label="主导航">
+      <a class="brand" href="{{ site.baseurl }}/" aria-label="DotVector 首页">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">
+          <strong>DotVector</strong>
+          <small>.NET Vector Database</small>
+        </span>
+      </a>
+      <div class="nav-links">
+        <a href="{{ site.baseurl }}/architecture/">架构</a>
+        <a href="{{ site.baseurl }}/algorithms/">算法</a>
+        <a href="{{ site.baseurl }}/dotnet10-advantages/">.NET 10</a>
+        <a href="{{ site.baseurl }}/comparison/">对比</a>
+        <a href="{{ site.baseurl }}/release/">发布</a>
+      </div>
+      <a class="github-link" href="https://github.com/IoTSharp/DotVector">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="content" class="page-shell">
+    {{ content }}
+  </main>
+
+  <footer class="site-footer">
+    <p>DotVector 文档站由 JekyllNet 构建，发布到 GitHub Pages。</p>
+  </footer>
+</body>
+</html>

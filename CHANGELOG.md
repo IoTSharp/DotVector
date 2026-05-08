@@ -8,6 +8,17 @@
 
 ### Added
 
+- PR #M9.2：M9.2 — README 门面重构与项目介绍更新
+  - `README.md` / `README.en.md`：标题与小标题统一加入 emoji，移除路线图式展示，改为项目介绍、核心实力、主要优势、架构分层、快速开始、发布与仓库内容说明
+  - `docs/release.md` 继续作为发布补充说明，保留 NuGet / Docker Hub / GitHub Release 的产物说明
+
+- PR #M9.1：M9.1 — 发布流水线覆盖 Docker Hub、NuGet 与 GitHub Release 资产
+  - `.github/workflows/publish.yml`：GitHub Release 发布时自动构建测试，打包并推送 `DotVector` / `DotVector.Core` / `DotVector.Data` / `DotVector.Cli` 到 nuget.org；构建并推送 `iotsharp/dotvector:<version>` Docker 镜像到 Docker Hub，正式版同步更新 `latest` 标签
+  - `src/DotVector/Dockerfile`：接收发布流水线传入的版本号并写入 OCI image labels，便于 Docker Hub 展示与追踪
+  - Release 资产上传：将 `.nupkg` / `.snupkg` 以及 `dotvector-<version>-connectors-examples.zip` 上传到 GitHub Release；压缩包包含 C native connector 发布产物、示例源码与示例发布产物
+  - `examples/csharp/QuickStart`（新增）：提供可运行的内存集合插入与搜索示例，作为 Release 示例源码与发布产物来源
+  - `docs/release.md`（新增）：记录所需 `NUGET_API_KEY` / `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets、触发方式与发布产物
+
 - PR #M14.1：M14.1 — `IBatchScorer` 抽象 + 默认 `CpuTensorPrimitivesScorer` + `FlatIndex<TKey>` 注入点
   - `src/DotVector.Core/Compute/IBatchScorer.cs`（新增）：声明 `Score(query, dataset, scores, metric)` 批量打分接口；约定无锁、与 `Distance.Compute` 同语义、热路径零分配；维度由 `dataset.Length / scores.Length` 隐式推导
   - `src/DotVector.Core/Compute/CpuTensorPrimitivesScorer.cs`（新增）：默认 CPU 实现，单例 `Instance`；逐行委托 `Distance.Compute`，与既有路径 bit-identical；显式拒绝 `Metric.Hamming`，并校验 `dataset.Length == scores.Length × query.Length`

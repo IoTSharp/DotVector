@@ -23,6 +23,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish ./
 
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="DotVector" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.description="DotVector gRPC server"
+
 ENV DOTVECTOR_DATA_DIR=/data \
     DOTVECTOR_PORT=5180 \
     ASPNETCORE_URLS=

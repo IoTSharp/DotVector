@@ -3,6 +3,8 @@
   <PropertyGroup>
     <AssemblyName>DotVector.Data</AssemblyName>
     <RootNamespace>DotVector.Data</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <Description>DotVector client SDK and Microsoft.Extensions.VectorData adapter.</Description>
     <!--
       客户端 VectorData 适配层（M7）。
       此项目【不得】直接引用 DotVector（服务端）。

@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>DotVector.Cli</AssemblyName>
     <RootNamespace>DotVector.Cli</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <Description>Command-line client for DotVector gRPC servers.</Description>
   </PropertyGroup>
 
   <!--

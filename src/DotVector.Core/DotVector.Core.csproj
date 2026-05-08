@@ -3,6 +3,8 @@
   <PropertyGroup>
     <AssemblyName>DotVector.Core</AssemblyName>
     <RootNamespace>DotVector</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <Description>DotVector embedded vector database engine with zero external runtime dependencies.</Description>
     <!--
       嵌入式向量数据库的完整核心实现。
       允许引用 System.Numerics.Tensors（属于 BCL 体系）。

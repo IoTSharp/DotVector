@@ -1,23 +1,74 @@
-name: Publish NuGet
+name: Release
 
-# 触发条件：GitHub Release 发布时
 on:
   release:
     types: [ published ]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package/image version, for example 0.1.0 or 0.1.0-preview.1'
+        required: true
+        default: '0.1.0'
+      publish_nuget:
+        description: 'Push NuGet packages to nuget.org'
+        type: boolean
+        required: true
+        default: false
+      push_docker:
+        description: 'Push Docker image to Docker Hub'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  NUGET_XMLDOC_MODE: skip
+  DOCKERHUB_IMAGE: iotsharp/dotvector
 
 jobs:
-  publish:
-    name: Pack & Push NuGet
+  metadata:
+    name: Resolve Release Metadata
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            raw_version="${{ github.event.release.tag_name }}"
+            is_prerelease="${{ github.event.release.prerelease }}"
+          else
+            raw_version="${{ inputs.version }}"
+            is_prerelease="false"
+          fi
 
+          version="${raw_version#v}"
+          if [[ -z "$version" ]]; then
+            echo "Version is empty." >&2
+            exit 1
+          fi
+
+          if [[ "${{ github.event_name }}" != "release" && "$version" == *-* ]]; then
+            is_prerelease="true"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$raw_version" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: metadata
     steps:
       - uses: actions/checkout@v4
 
@@ -29,26 +80,226 @@ jobs:
         run: dotnet restore DotVector.slnx
 
       - name: Build
-        run: dotnet build DotVector.slnx --configuration Release --no-restore
+        run: >
+          dotnet build DotVector.slnx
+          --configuration Release
+          --no-restore
+          -p:Version=${{ needs.metadata.outputs.version }}
+          -p:PackageVersion=${{ needs.metadata.outputs.version }}
+          -p:ContinuousIntegrationBuild=true
 
-      - name: Pack
-        run: |
-          dotnet pack src/DotVector/DotVector.csproj \
-            --configuration Release \
-            --no-build \
-            --output ./nupkgs \
-            -p:PackageVersion=${{ github.event.release.tag_name || '0.1.0' }}
+      - name: Test
+        run: >
+          dotnet test DotVector.slnx
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory ./TestResults
+          -- xunit.parallelizeTestCollections=true
 
-      # Push 步骤：在 M0 骨架阶段暂时注释，待 API 稳定后启用
-      # - name: Push to NuGet
-      #   run: |
-      #     dotnet nuget push ./nupkgs/*.nupkg \
-      #       --api-key ${{ secrets.NUGET_API_KEY }} \
-      #       --source https://api.nuget.org/v3/index.json \
-      #       --skip-duplicate
-
-      - name: Upload nupkg artifacts
+      - name: Upload test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nupkgs
-          path: ./nupkgs
+          name: release-test-results
+          path: ./TestResults
+
+  nuget:
+    name: Pack & Push NuGet
+    runs-on: ubuntu-latest
+    needs: [ metadata, test ]
+    if: github.event_name == 'release' || inputs.publish_nuget
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore DotVector.slnx
+
+      - name: Build package projects
+        run: >
+          dotnet build DotVector.slnx
+          --configuration Release
+          --no-restore
+          -p:Version=${{ needs.metadata.outputs.version }}
+          -p:PackageVersion=${{ needs.metadata.outputs.version }}
+          -p:ContinuousIntegrationBuild=true
+
+      - name: Pack
+        shell: bash
+        run: |
+          mkdir -p artifacts/nupkgs
+          projects=(
+            "src/DotVector.Core/DotVector.Core.csproj"
+            "src/DotVector.Data/DotVector.Data.csproj"
+            "src/DotVector.Cli/DotVector.Cli.csproj"
+            "src/DotVector/DotVector.csproj"
+          )
+
+          for project in "${projects[@]}"; do
+            dotnet pack "$project" \
+              --configuration Release \
+              --no-build \
+              --output artifacts/nupkgs \
+              --include-symbols \
+              -p:SymbolPackageFormat=snupkg \
+              -p:Version=${{ needs.metadata.outputs.version }} \
+              -p:PackageVersion=${{ needs.metadata.outputs.version }} \
+              -p:ContinuousIntegrationBuild=true
+          done
+
+      - name: Push to nuget.org
+        if: github.event_name == 'release' || inputs.publish_nuget
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        shell: bash
+        run: |
+          if [[ -z "$NUGET_API_KEY" ]]; then
+            echo "NUGET_API_KEY secret is required to publish packages." >&2
+            exit 1
+          fi
+
+          dotnet nuget push "artifacts/nupkgs/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+          dotnet nuget push "artifacts/nupkgs/*.snupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Upload NuGet workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotvector-nuget-${{ needs.metadata.outputs.version }}
+          path: artifacts/nupkgs/*
+
+      - name: Upload NuGet packages to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.metadata.outputs.tag }}
+          files: |
+            artifacts/nupkgs/*.nupkg
+            artifacts/nupkgs/*.snupkg
+
+  docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [ metadata, test ]
+    if: github.event_name == 'release' || inputs.push_docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_IMAGE }}
+          tags: |
+            type=raw,value=${{ needs.metadata.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.metadata.outputs.is_prerelease != 'true' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/DotVector/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.metadata.outputs.version }}
+
+  release-assets:
+    name: Build Release Zip
+    runs-on: ubuntu-latest
+    needs: [ metadata, test ]
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore DotVector.slnx
+
+      - name: Publish connector artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/release/connectors/c/native
+          dotnet publish connectors/c/native/DotVector.Native/DotVector.Native.csproj \
+            --configuration Release \
+            --output artifacts/release/connectors/c/native/DotVector.Native \
+            -p:Version=${{ needs.metadata.outputs.version }} \
+            -p:PackageVersion=${{ needs.metadata.outputs.version }} \
+            -p:ContinuousIntegrationBuild=true
+
+      - name: Publish examples
+        shell: bash
+        run: |
+          mkdir -p artifacts/release/examples/bin artifacts/release/examples/source
+          cp -R examples/. artifacts/release/examples/source/
+          find artifacts/release/examples/source -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
+
+          while IFS= read -r project; do
+            example_name="$(basename "$(dirname "$project")")"
+            dotnet publish "$project" \
+              --configuration Release \
+              --output "artifacts/release/examples/bin/$example_name" \
+              -p:Version=${{ needs.metadata.outputs.version }} \
+              -p:PackageVersion=${{ needs.metadata.outputs.version }} \
+              -p:ContinuousIntegrationBuild=true
+          done < <(find examples -name '*.csproj' -not -path '*/bin/*' -not -path '*/obj/*')
+
+      - name: Add release manifest
+        shell: bash
+        run: |
+          cat > artifacts/release/README.md <<EOF
+          # DotVector ${{ needs.metadata.outputs.version }} Release Assets
+
+          This archive contains:
+
+          - connectors/c/native/DotVector.Native: published connector artifacts
+          - examples/source: example source code
+          - examples/bin: published example binaries
+
+          Docker image: docker.io/${{ env.DOCKERHUB_IMAGE }}:${{ needs.metadata.outputs.version }}
+          NuGet packages: DotVector, DotVector.Core, DotVector.Data, DotVector.Cli
+          EOF
+
+      - name: Compress release zip
+        shell: bash
+        run: |
+          cd artifacts/release
+          zip -r "../dotvector-${{ needs.metadata.outputs.version }}-connectors-examples.zip" .
+
+      - name: Upload release zip workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotvector-connectors-examples-${{ needs.metadata.outputs.version }}
+          path: artifacts/dotvector-${{ needs.metadata.outputs.version }}-connectors-examples.zip
+
+      - name: Upload release zip to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.metadata.outputs.tag }}
+          files: artifacts/dotvector-${{ needs.metadata.outputs.version }}-connectors-examples.zip

@@ -259,6 +259,19 @@ public sealed class VectorDatabase : IDisposable
     public int CollectionCount => _collections.Count;
 
     /// <summary>
+    /// 判断指定名称的集合是否已注册。比对采用 <see cref="StringComparer.Ordinal"/>，
+    /// 与 <see cref="CreateCollection{TKey}(string, int, Metric)"/> 等使用的键比较器一致。
+    /// </summary>
+    /// <param name="name">集合名称。</param>
+    /// <returns>已存在返回 <see langword="true"/>，否则 <see langword="false"/>。</returns>
+    public bool HasCollection(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ThrowIfDisposed();
+        return _collections.ContainsKey(name);
+    }
+
+    /// <summary>
     /// 返回当前所有已注册集合实例的快照（按集合名升序）。仅供本程序集与 InternalsVisibleTo 受信项目使用。
     /// </summary>
     /// <remarks>

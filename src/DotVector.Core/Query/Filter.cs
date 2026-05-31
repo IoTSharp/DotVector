@@ -35,7 +35,7 @@ public abstract class Filter
     internal virtual object? GetIntrospection() => null;
 
     /// <summary>
-    /// 内部序列化钩子（M9 — gRPC Filter 传输）。把当前节点写入二进制流。
+    /// 内部序列化钩子。把当前节点写入二进制流。
     /// 默认抛出，外部自定义子类不可序列化。
     /// </summary>
     internal virtual void WriteTo(System.IO.BinaryWriter writer)

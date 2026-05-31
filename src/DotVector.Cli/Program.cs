@@ -1,21 +1,20 @@
 using System.Globalization;
 using System.Reflection;
-using DotVector.Core;
 using DotVector.Core.Protocol;
-using DotVector.Data.Grpc;
+using DotVector.Data;
 
 namespace DotVector.Cli;
 
 /// <summary>
-/// DotVector CLI（M9）。
+/// DotVector 本地命令行工具。
 /// </summary>
 /// <remarks>
-/// 仅作为 gRPC 客户端使用 <see cref="GrpcDotVectorClient"/> 连接远端 DotVector 服务。
-/// 服务端入口在独立的 <c>DotVector</c> 可执行中（参见 <c>src/DotVector/Program.cs</c>）。
+/// 独立 gRPC Server / Docker 服务端项目已删除；CLI 只打开本地 <c>.dvec/</c> 数据库目录。
+/// 需要服务端 endpoint 时应使用 SonnetDB。
 /// </remarks>
 internal static class Program
 {
-    private const string DefaultEndpoint = "http://localhost:5180";
+    private const string DefaultDataDirectory = "dotvector.dvec";
 
     /// <summary>程序入口。</summary>
     /// <param name="args">命令行参数。</param>
@@ -43,11 +42,6 @@ internal static class Program
                 _ => UnknownCommand(args[0]),
             };
         }
-        catch (global::Grpc.Core.RpcException rex)
-        {
-            Console.Error.WriteLine($"gRPC 错误: {rex.Status.StatusCode} - {rex.Status.Detail}");
-            return 3;
-        }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"错误: {ex.Message}");
@@ -73,20 +67,20 @@ internal static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("DotVector CLI — gRPC client");
+        Console.WriteLine("DotVector CLI - local embedded database");
         Console.WriteLine();
-        Console.WriteLine("用法：");
-        Console.WriteLine("  dotvector ping [--endpoint <url>]");
-        Console.WriteLine("  dotvector collections list   [--endpoint <url>]");
-        Console.WriteLine("  dotvector collections create --name <n> --dim <d> [--metric <m>] [--endpoint <url>]");
-        Console.WriteLine("  dotvector collections delete --name <n> [--endpoint <url>]");
+        Console.WriteLine("用法:");
+        Console.WriteLine("  dotvector ping [--data <path>]");
+        Console.WriteLine("  dotvector collections list [--data <path>]");
+        Console.WriteLine("  dotvector collections create --name <n> --dim <d> [--metric <m>] [--data <path>]");
+        Console.WriteLine("  dotvector collections delete --name <n> [--data <path>]");
         Console.WriteLine();
-        Console.WriteLine($"  --endpoint 默认 {DefaultEndpoint}（也可读环境变量 DOTVECTOR_ENDPOINT）");
+        Console.WriteLine($"  --data 默认 {DefaultDataDirectory} (也可读环境变量 DOTVECTOR_DATA)");
     }
 
     private static async Task<int> PingAsync(string[] args)
     {
-        await using GrpcDotVectorClient client = NewClient(args);
+        await using DotVectorClient client = NewClient(args);
         bool ok = await client.PingAsync().ConfigureAwait(false);
         Console.WriteLine(ok ? "OK" : "FAIL");
         return ok ? 0 : 1;
@@ -100,7 +94,7 @@ internal static class Program
             return 2;
         }
 
-        await using GrpcDotVectorClient client = NewClient(args);
+        await using DotVectorClient client = NewClient(args);
         switch (args[1])
         {
             case "list":
@@ -119,8 +113,9 @@ internal static class Program
                 {
                     string name = RequireArg(args, "--name");
                     int dim = int.Parse(RequireArg(args, "--dim"), CultureInfo.InvariantCulture);
-                    string metric = TryArg(args, "--metric") ?? "Cosine";
-                    await client.CreateCollectionAsync(new CreateCollectionRequest(name, dim, metric)).ConfigureAwait(false);
+                    string metricText = TryArg(args, "--metric") ?? nameof(DistanceMetric.Cosine);
+                    DistanceMetric metric = ParseMetric(metricText);
+                    await client.CreateCollectionAsync(name, dim, metric).ConfigureAwait(false);
                     Console.WriteLine($"已创建集合 '{name}' (dim={dim}, metric={metric})");
                     return 0;
                 }
@@ -139,12 +134,12 @@ internal static class Program
         }
     }
 
-    private static GrpcDotVectorClient NewClient(string[] args)
+    private static DotVectorClient NewClient(string[] args)
     {
-        string endpoint = TryArg(args, "--endpoint")
-            ?? Environment.GetEnvironmentVariable("DOTVECTOR_ENDPOINT")
-            ?? DefaultEndpoint;
-        return new GrpcDotVectorClient(new Uri(endpoint));
+        string dataDirectory = TryArg(args, "--data")
+            ?? Environment.GetEnvironmentVariable("DOTVECTOR_DATA")
+            ?? DefaultDataDirectory;
+        return DotVectorClient.Embedded(dataDirectory);
     }
 
     private static string? TryArg(string[] args, string name)
@@ -158,4 +153,15 @@ internal static class Program
 
     private static string RequireArg(string[] args, string name)
         => TryArg(args, name) ?? throw new ArgumentException($"缺少参数 {name}");
+
+    private static DistanceMetric ParseMetric(string value)
+    {
+        string normalized = value.Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace("_", string.Empty, StringComparison.Ordinal);
+        if (Enum.TryParse(normalized, ignoreCase: true, out DistanceMetric metric))
+        {
+            return metric;
+        }
+        throw new ArgumentException($"未知距离度量: {value}");
+    }
 }

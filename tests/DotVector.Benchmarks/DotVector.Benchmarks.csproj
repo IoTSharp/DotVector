@@ -12,7 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\DotVector\DotVector.csproj" />
     <ProjectReference Include="..\..\src\DotVector.Core\DotVector.Core.csproj" />
   </ItemGroup>
 

@@ -9,10 +9,10 @@ using DotVector.Query;
 namespace DotVector.Api;
 
 /// <summary>
-/// 直接包装 <see cref="VectorDatabase"/> 的进程内 <see cref="IDotVectorClient"/> 实现（M9）。
+/// 直接包装 <see cref="VectorDatabase"/> 的进程内 <see cref="IDotVectorClient"/> 实现。
 /// </summary>
 /// <remarks>
-/// 既可作为 gRPC 服务端的内部委托，也可让宿主进程在不经过任何 gRPC 序列化的前提下使用 VectorData 适配层。
+/// 让宿主进程在不经过任何网络序列化的前提下使用 VectorData 适配层。
 /// 通过运行时反射检测每个集合的 <c>TKey</c>，把字符串 ID 解析为 int / long / Guid / string 后分发到
 /// <see cref="Collection{TKey}"/> 的强类型 API。
 /// </remarks>

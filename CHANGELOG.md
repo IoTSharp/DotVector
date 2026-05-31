@@ -8,9 +8,23 @@
 
 ### Added
 
+- 新增 `DotVector.Primitives` / `DotVector.Indexing` 库级 API：提供 lower-is-better `KnnMetric` / `VectorDistance` facade，以及 `IVectorIndexBuilder` / `IVectorIndexReader`、`LocalVectorIndexBuilder`、连续 float32 payload 构建和搜索入口，供 SonnetDB adapter 复用 DotVector 本地引擎而不依赖服务端模式。
+
+### Changed
+
+- 收紧 DotVector V1 定位：后续 SonnetDB 集成只走本地嵌入式 / 库级 API，独立 gRPC Server、Docker 服务端和远程数据库形态不再作为新的产品路线或 SonnetDB 依赖路径。
+
 - `src/DotVector.Data` 客户端 SDK 项目显式设置 NuGet `PackageId=DotVector`，发布产物从 `DotVector.Data` 包名调整为 `DotVector`，程序集名与命名空间保持 `DotVector.Data` 不变。
 
-- 修复 `tests/DotVector.Tests` 在 CI 构建 `GrpcServerIntegrationTests` 时缺少 ASP.NET Core framework reference 的问题，并将 Microsoft.Extensions Abstractions 版本对齐到 .NET 10。
+- CI / Release 发布流程移除 DotVector Docker 镜像构建与推送，只保留 NuGet、CLI Native AOT、C NativeAOT connector、文档站和 release assets。
+
+- `DotVectorClient.Connect(...)`、`DotVectorClientOptions` 与 C ABI `dotvector_database_connect` 仅作为旧 API / ABI 兼容入口保留，调用时明确返回远程服务端模式已删除；CLI 改为通过 `--data` / `DOTVECTOR_DATA` 打开本地 `.dvec/` 目录。
+
+### Removed
+
+- 删除独立 DotVector Server 项目：移除 `src/DotVector`、`docker-compose.yml`、`docker-compose.override.yml`、`docker-compose.dcproj` 和 `tests/DotVector.Tests/GrpcServerIntegrationTests.cs`；服务端模式后续统一由 SonnetDB 承载。
+
+- 删除 DotVector gRPC 客户端与协议生成链路：移除 `src/DotVector.Data/Grpc/GrpcDotVectorClient.cs`、`protos/dotvector.proto`、`Grpc.Net.Client` / `Grpc.Tools` / `Google.Protobuf` 依赖，以及 Python gRPC client / generated proto 文件；Python connector 仅保留 ctypes Native 本地嵌入式路径。
 
 - 新增 `docs/release-news-v1.0.0.md` 发布新闻页，并在文档首页与发布说明中加入入口。
 

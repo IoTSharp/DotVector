@@ -6,13 +6,15 @@
 
 ## 项目目标
 
-**DotVector** 是一个使用 C# / .NET 10 实现的嵌入式原生向量数据库，目标是：
+**DotVector** 是一个使用 C# / .NET 10 实现的嵌入式原生向量数据库与向量算法库，目标是：
 
 > 可以通过 NuGet 直接引用，进程内嵌入式运行，**单目录持久化**（`.dvec/` 目录，每个 Segment 独立文件），零外部依赖，支持 HNSW / IVF / Flat 近似最近邻索引，与 `Microsoft.Extensions.VectorData` 天然集成，支持 Native AOT 部署。
 
-当前 Milestone：**M0 — 工程骨架 + 文档 + 设计基线**（详见 [ROADMAP.md](ROADMAP.md)）。
+当前 SonnetDB 集成 Milestone：**V1 — 稳定 `DotVector.Primitives` / `DotVector.Indexing` 库级 API**（详见 [ROADMAP.md](ROADMAP.md)）。
 
-> 后续路线：M1（SIMD 距离内核）→ M2（Flat 索引）→ M3（HNSW）→ M4（IVF/IVF-PQ）→ M5（持久化）→ M6（标量过滤）→ M7（VectorData 适配）→ M8（基准对比）→ M9（gRPC + AOT + Docker）。
+> 后续路线：V1（库级 primitives/indexing API）→ V2（SonnetDB adapter）→ V3（距离与 HNSW 迁移）→ V4（Segment flush/compaction 接入）→ V5（IVF/Vamana/量化）→ V6（benchmark、recall、备份恢复兼容性）。
+
+独立 gRPC Server / Docker 服务端项目已删除，不再作为新的产品路线或 SonnetDB 依赖路径。需要服务端模式时统一集成到 SonnetDB，由 SonnetDB 承载 API、认证、过滤、WAL、Segment、备份恢复和部署生命周期。
 
 ---
 
@@ -103,36 +105,38 @@ public struct SegmentHeader
 DotVector.Core          ← 完整嵌入式向量数据库引擎（仅依赖 BCL + System.Numerics.Tensors）
   ↑ 引用                  一个 VectorDatabase 实例 = 打开一个 .dvec 目录
   │
-DotVector               ← 服务端壳：在一个进程内托管多个 VectorDatabase 实例
-  ↑ gRPC 远程访问       （几个数据库 = 几个 Core 实例，每个对应一个目录）
+DotVector.Primitives    ← lower-is-better KNN 距离 facade、SIMD primitives、metric contracts
+  ↑ 引用
   │
-DotVector.Data          ← 客户端 SDK：Microsoft.Extensions.VectorData.Abstractions 适配
-  ↑ 引用                  · 本地嵌入式：直接引用 DotVector.Core，零序列化
-  │                       · 远程服务器：通过 gRPC 调用 DotVector
-  │                       【禁止直接引用 DotVector（服务端壳）】
-DotVector.Cli           ← 仅引用 DotVector.Data；同时支持本地嵌入式与远程服务器访问
+DotVector.Indexing      ← HNSW / IVF / Vamana / quantization / index blob API
+  ↑ 引用
+  │
+DotVector.Data          ← 客户端 SDK：Microsoft.Extensions.VectorData.Abstractions 适配，本地嵌入式访问
+  ↑ 引用
+  │
+DotVector.Cli           ← 仅引用 DotVector.Data；面向本地数据库管理与基础操作
 ```
 
-#### 客户端/服务端隔离（最重要约束）
+#### SonnetDB 集成隔离（最重要约束）
 
-> **`src/DotVector.Data`（客户端适配层）禁止直接引用 `src/DotVector`（服务端壳）程序集。**
+> **SonnetDB 集成禁止依赖 DotVector Server / gRPC / Docker 服务端形态。**
 
 原因：
-- `DotVector.Core` 是真正的嵌入式数据库引擎；既可以由本地进程直接 `new VectorDatabase(path)` 嵌入式调用，也可以由 `DotVector` 服务端壳托管
-- `DotVector` 是服务端实现，把多个 `DotVector.Core` 数据库实例（每个对应一个目录）暴露成进程外 API（M9 gRPC server）
-- `DotVector.Data` 是客户端 SDK，通过 `IDotVectorClient`（定义于 `DotVector.Core`）与本地或远程引擎通信
-- 这种隔离使 `DotVector.Data` 可以在纯客户端场景（仅连接远程 DotVector 服务）中单独使用，而无需带上服务端壳
+- SonnetDB 必须保留 `VECTOR` 主数据、SQL、WAL、Segment、Compaction、Retention、Backup、Restore 和 time/tag/table filter pushdown。
+- DotVector 为 SonnetDB 提供距离计算、ANN 索引、量化和索引 blob 读写能力。
+- DotVector 生成的 ANN 索引在 SonnetDB 中只能作为派生数据托管，并且必须可重建。
+- `src/DotVector` 服务端项目已删除，不得重新引入为 SonnetDB adapter 的依赖。
 
 传输实现方式：
 - **嵌入式**：直接在宿主进程构造 `DotVector.Core.Api.VectorDatabase` 使用，零序列化
-- **M9 gRPC**：`GrpcDotVectorClient : IDotVectorClient`（位于 `DotVector.Data`，使用 gRPC 传输）
-- **M9 进程内代理**：`LocalDotVectorClient : IDotVectorClient`（位于 `DotVector`，直接调用 `VectorDatabase`，零序列化）
+- **SonnetDB adapter**：调用 `DotVector.Primitives` / `DotVector.Indexing` 库级 API，输入连续 float32 payload，输出 point index + lower-is-better distance
+- **远程 / 服务端实现**：进入 SonnetDB，不在 DotVector 中实现
 
 #### 其他依赖规则
 
 - `src/DotVector.Core` **不得**引入任何第三方 NuGet 运行时依赖
   - 允许 `System.Numerics.Tensors`，因为属于 BCL 体系
-- `src/DotVector`（服务端壳）**不得**引入任何第三方 NuGet 运行时依赖（M9 才会引入 gRPC 相关包）
+- 不得新增 `src/DotVector` 服务端壳；服务端能力应进入 SonnetDB
 - 测试项目可引用 `xunit`、`xunit.runner.visualstudio`、`Microsoft.NET.Test.Sdk`、`coverlet.collector`
 - 基准项目可引用 `BenchmarkDotNet`，以及对照基准用的 `Qdrant.Client`、`Milvus.Client`、`Pgvector`、`Npgsql`
 - `src/DotVector.Data` 可引用 `Microsoft.Extensions.VectorData.Abstractions`
@@ -327,25 +331,7 @@ feat(m1): 实现 L2 / Cosine / InnerProduct / Hamming 距离函数
 ```
 DotVector/
 ├── src/
-│   ├── DotVector/                   # 核心库（零第三方运行时依赖）
-│   │   ├── Api/                   # 公共 API：VectorDatabase / Collection / SearchRequest / SearchResult
-│   │   ├── Buffers/               # InlineArray 工具：Magic8 等
-│   │   ├── Catalog/               # 集合元数据目录
-│   │   ├── Compute/               # 距离函数（Distance.cs，TensorPrimitives 实现）
-│   │   ├── Compression/           # PQ / SQ / OPQ 量化
-│   │   ├── Exceptions/            # DotVectorException 及子类
-│   │   ├── Format/                # unmanaged struct：FileHeader / SegmentHeader / HnswNodeHeader / IvfListHeader
-│   │   ├── Index/
-│   │   │   ├── Flat/              # Brute Force 索引（M2）
-│   │   │   ├── Hnsw/              # HNSW 图索引（M3）
-│   │   │   └── Ivf/               # IVF / IVF-PQ（M4）
-│   │   ├── IO/                    # SpanReader / SpanWriter
-│   │   ├── Model/                 # VectorRecord<TKey> / Metric 枚举
-│   │   ├── PageStore/             # 页面管理（M5）
-│   │   ├── Query/                 # 查询引擎
-│   │   ├── Storage/               # MemTable / SegmentWriter / Reader
-│   │   └── Wal/                   # WalWriter / WalReader
-│   ├── DotVector.Core/              # 完整嵌入式向量数据库引擎（VectorDatabase / Collection / FlatIndex / Distance / IIndex / IStorage / IDistanceKernel<T> ...）
+│   ├── DotVector.Core/              # 完整嵌入式向量数据库引擎（VectorDatabase / Collection / Index / Storage / Primitives / Indexing ...）
 │   ├── DotVector.Data/              # Microsoft.Extensions.VectorData 适配（M7）
 │   └── DotVector.Cli/               # 命令行工具
 ├── tests/
@@ -386,7 +372,7 @@ DotVector/
 | 禁止 | 原因 |
 |------|------|
 | 使用 `unsafe` | 第一版 Safe-only 原则（M0～M7） |
-| 在 `src/DotVector` 中引入运行时第三方依赖 | 保持零依赖特性 |
+| 重新引入 `src/DotVector` 独立服务端项目 | 服务端能力统一进入 SonnetDB |
 | 引入 `Newtonsoft.Json`、`Dapper` 等大型库 | 最小化依赖 |
 | 修改二进制格式不升级 `FileHeader.Version` | 破坏向后兼容 |
 | 压制编译警告（无注释说明） | 维护代码质量 |

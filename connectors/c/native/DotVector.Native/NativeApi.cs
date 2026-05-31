@@ -92,16 +92,11 @@ public static class NativeApi
             {
                 throw new ArgumentException("Endpoint must not be empty.", nameof(endpoint));
             }
-
-            DotVectorClientOptions options = new()
-            {
-                Database = ReadOptionalUtf8(databaseName),
-                ApiKey = ReadOptionalUtf8(apiKey),
-                UseProxy = useProxy != 0,
-            };
-
-            DotVectorClient client = DotVectorClient.Connect(endpointText, options);
-            return AddDatabase(client, directoryPath: string.Empty, ownsDirectory: false);
+            _ = ReadOptionalUtf8(databaseName);
+            _ = ReadOptionalUtf8(apiKey);
+            _ = useProxy;
+            throw new NotSupportedException(
+                "DotVector remote server mode has been removed. Use dotvector_database_open for local embedded databases, or use SonnetDB when a service endpoint is required.");
         });
 
     [UnmanagedCallersOnly(EntryPoint = "dotvector_database_free", CallConvs = new[] { typeof(CallConvCdecl) })]

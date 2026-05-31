@@ -2,19 +2,17 @@ using DotVector.Core.Protocol;
 
 namespace DotVector.Core;
 /// <summary>
-/// DotVector 服务端的客户端协议抽象接口。
-/// 定义了客户端与服务端之间的所有操作契约，与传输协议无关。
+/// DotVector 本地客户端协议抽象接口。
+/// 定义了 VectorData / SDK 适配层与底层数据库实现之间的操作契约。
 /// </summary>
 /// <remarks>
 /// 实现方式：
 /// <list type="bullet">
-///   <item><description>M9: <c>GrpcDotVectorClient</c>（gRPC 传输，位于 DotVector.Data）</description></item>
-///   <item><description>M9: <c>LocalDotVectorClient</c>（进程内直接调用，供嵌入式与服务端内部委托使用，位于 DotVector.Core）</description></item>
+///   <item><description><c>LocalDotVectorClient</c>（进程内直接调用，供嵌入式使用，位于 DotVector.Core）</description></item>
 ///   <item><description>测试: <c>InMemoryDotVectorClient</c>（内存模拟，用于单元测试）</description></item>
 /// </list>
 /// <para>
-/// <c>DotVector.Data</c>（VectorData 适配层）仅依赖此接口，
-/// 不直接引用 <c>DotVector</c>（服务端）。
+/// 独立 gRPC Server / Docker 服务端项目已删除。需要服务端 endpoint 时由 SonnetDB 承载。
 /// </para>
 /// </remarks>
 public interface IDotVectorClient : IAsyncDisposable
@@ -100,16 +98,15 @@ public interface IDotVectorClient : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 列出服务端当前所有集合及其基础元数据（M7.3）。
+    /// 列出当前数据库中的所有集合及其基础元数据（M7.3）。
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>集合元数据列表（顺序由实现定义）。</returns>
-    /// <remarks>M9 起已映射到 gRPC <c>ListCollections</c> RPC。</remarks>
     ValueTask<IReadOnlyList<Protocol.CollectionInfo>> ListCollectionsAsync(
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 检查客户端与服务端的连接是否正常。
+    /// 检查客户端是否可用。
     /// </summary>
     /// <param name="cancellationToken">取消令牌。</param>
     ValueTask<bool> PingAsync(CancellationToken cancellationToken = default);

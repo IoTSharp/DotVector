@@ -9,7 +9,7 @@ namespace DotVector.Data;
 
 /// <summary>
 /// DotVector 对 <see cref="VectorStoreCollection{TKey, TRecord}"/> 的实现。
-/// 通过 <see cref="IDotVectorClient"/> 与服务端（嵌入式或远程）通信。
+/// 通过 <see cref="IDotVectorClient"/> 与本地嵌入式数据库通信。
 /// </summary>
 /// <typeparam name="TKey">主键类型，需为 <see cref="string"/> / <see cref="int"/> /
 /// <see cref="long"/> / <see cref="Guid"/> 之一。</typeparam>

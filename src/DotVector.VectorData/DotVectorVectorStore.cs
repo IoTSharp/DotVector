@@ -12,8 +12,8 @@ namespace DotVector.VectorData;
 /// <see cref="DotVectorCollection{TKey, TRecord}"/>。
 /// </summary>
 /// <remarks>
-/// 与 <c>DotVector</c>（服务端壳）解耦：本类型仅依赖 <see cref="IDotVectorClient"/>，
-/// 因此既可承载嵌入式 <c>LocalDotVectorClient</c>，也可承载远程 <c>GrpcDotVectorClient</c>（M9）。
+/// 本类型仅依赖 <see cref="IDotVectorClient"/>，默认搭配嵌入式 <c>LocalDotVectorClient</c> 使用。
+/// DotVector 独立远程服务端模式已删除；服务端 endpoint 由 SonnetDB 承载。
 /// </remarks>
 public sealed class DotVectorVectorStore : VectorStore
 {

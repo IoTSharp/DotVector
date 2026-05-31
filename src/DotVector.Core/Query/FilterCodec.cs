@@ -4,11 +4,10 @@ using System.Text;
 namespace DotVector.Query;
 
 /// <summary>
-/// 把 <see cref="Filter"/> AST 与 byte[] 之间互转的内部编解码器（M9 — gRPC Filter 传输）。
+/// 把 <see cref="Filter"/> AST 与 byte[] 之间互转的内部编解码器。
 /// </summary>
 /// <remarks>
-/// 用于在 gRPC <c>bytes filter</c> 字段中携带过滤条件，避免引入递归 Protobuf 消息且 AOT 友好。
-/// 字节序统一 little-endian（<see cref="BinaryWriter"/> 默认）。
+/// 用于持久化和本地协议层复用过滤条件，字节序统一 little-endian（<see cref="BinaryWriter"/> 默认）。
 /// </remarks>
 internal static class FilterCodec
 {

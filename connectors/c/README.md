@@ -1,12 +1,12 @@
 # DotVector C Connector
 
-`connectors/c/native/DotVector.Native` publishes `DotVector.Core` as a NativeAOT shared library and exposes a small C ABI.
+`connectors/c/native/DotVector.Native` publishes DotVector local embedded access as a NativeAOT shared library and exposes a small C ABI.
 
 ## ABI Scope
 
 The ABI keeps opaque handles + primitive/UTF-8 buffers; payload / filter / 结果集统一用 UTF-8 JSON 文本承载。
 
-- **Database lifecycle**：`dotvector_database_create` / `dotvector_database_open` / `dotvector_database_connect`（gRPC）/ `dotvector_database_free` / `dotvector_database_flush` / `dotvector_database_compact` / `dotvector_database_ping`
+- **Database lifecycle**：`dotvector_database_create` / `dotvector_database_open` / `dotvector_database_free` / `dotvector_database_flush` / `dotvector_database_compact` / `dotvector_database_ping`
 - **Collection 管理**：`dotvector_database_list_collections` / `dotvector_database_collection_exists` / `dotvector_database_create_collection` / `dotvector_database_ensure_collection` / `dotvector_database_delete_collection` / `dotvector_database_get_collection` / `dotvector_collection_describe`
 - **写入**：`dotvector_collection_upsert` / `dotvector_collection_upsert_batch`
 - **查询**：`dotvector_collection_search`（向量 + 可选 Filter）/ `dotvector_collection_query`（仅 Filter）/ `dotvector_collection_get`（按 ID）
@@ -15,6 +15,8 @@ The ABI keeps opaque handles + primitive/UTF-8 buffers; payload / filter / 结�
 - **遗留 int64**：`dotvector_collection_create_i64` / `dotvector_collection_get_i64` / `dotvector_collection_insert_i64` / `dotvector_collection_search_i64` / `dotvector_collection_count`
 
 它**不**暴露 C# 对象、文件格式 struct 或引擎内部指针。
+
+`dotvector_database_connect` 旧符号仅为 ABI 兼容保留。DotVector 独立 Server / gRPC 模式已删除，调用该入口会返回 NULL；需要服务端 endpoint 时请使用 SonnetDB。
 
 ### 状态码
 

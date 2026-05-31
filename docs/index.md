@@ -34,7 +34,7 @@ layout: default
 <div class="doc-grid">
   <a class="doc-card" href="/DotVector/architecture/">
     <strong>架构总览</strong>
-    <span>Core / Server / Data / CLI 分层，以及客户端与服务端隔离原则。</span>
+    <span>Core / Data / CLI 分层，以及 SonnetDB 库级 adapter 边界。</span>
   </a>
   <a class="doc-card" href="/DotVector/algorithms/">
     <strong>算法参考</strong>
@@ -50,11 +50,11 @@ layout: default
   </a>
   <a class="doc-card" href="/DotVector/release/">
     <strong>发布说明</strong>
-    <span>NuGet、Docker、GitHub Release 与 GitHub Pages 的发布流程。</span>
+    <span>NuGet、GitHub Release 与 GitHub Pages 的发布流程。</span>
   </a>
   <a class="doc-card" href="/DotVector/release-news-v1.0.0">
     <strong>v1.0.0 发布</strong>
-    <span>索引、量化、持久化、gRPC、Docker 与生态集成的版本概览。</span>
+    <span>索引、量化、持久化与生态集成的版本概览。</span>
   </a>
   <a class="doc-card" href="https://github.com/IoTSharp/DotVector/blob/main/ROADMAP.md">
     <strong>路线图</strong>
@@ -70,16 +70,12 @@ layout: default
     <span>嵌入式数据库引擎，包含 VectorDatabase、索引、持久化、过滤、量化与协议抽象。</span>
   </div>
   <div class="feature-card">
-    <strong>DotVector</strong>
-    <span>gRPC 服务端宿主和 Docker 镜像入口，在一个进程内托管多个 Core 数据库实例。</span>
-  </div>
-  <div class="feature-card">
     <strong>DotVector.Data</strong>
-    <span>客户端 SDK 项目，NuGet 包名为 DotVector，包含高层客户端、gRPC 客户端、嵌入式工厂和 VectorData 适配。</span>
+    <span>客户端 SDK 项目，NuGet 包名为 DotVector，包含高层客户端、嵌入式工厂和 VectorData 适配。</span>
   </div>
   <div class="feature-card">
     <strong>DotVector.Cli</strong>
-    <span>连接远端 gRPC 服务的命令行工具，后续覆盖 Native AOT 管理命令。</span>
+    <span>Native AOT 命令行工具，后续覆盖本地 `.dvec` 管理命令。</span>
   </div>
   <div class="feature-card">
     <strong>connectors/c</strong>
@@ -87,7 +83,7 @@ layout: default
   </div>
   <div class="feature-card">
     <strong>connectors/python</strong>
-    <span>Python gRPC 与 ctypes Native 客户端路线，便于 RAG 原型和脚本集成。</span>
+    <span>Python ctypes Native 客户端路线，便于 RAG 原型和脚本集成。</span>
   </div>
 </div>
 
@@ -96,8 +92,7 @@ layout: default
 <div class="command-panel">
   <pre><code>dotnet restore DotVector.slnx
 dotnet build DotVector.slnx -c Release
-dotnet test DotVector.slnx -c Release --no-build
-docker compose up --build</code></pre>
+dotnet test DotVector.slnx -c Release --no-build</code></pre>
 </div>
 
 <p>文档站地址：<a href="https://iotsharp.net/DotVector/">https://iotsharp.net/DotVector/</a>。仓库内使用 <a href="https://github.com/JekyllNet/JekyllNet">JekyllNet</a> 构建静态站点，随后通过 GitHub Pages artifact 部署。</p>

@@ -1,6 +1,5 @@
 """DotVector Python Connector."""
 
-from .client import DotVectorClient
 from .native import (
     CollectionInfo,
     DotVectorNativeError,
@@ -22,7 +21,6 @@ __version__ = "0.2.0"
 
 __all__ = [
     "CollectionInfo",
-    "DotVectorClient",
     "DotVectorNativeError",
     "Filter",
     "NativeCollection",

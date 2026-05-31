@@ -6,7 +6,7 @@
     <RootNamespace>DotVector.Cli</RootNamespace>
     <IsPackable>true</IsPackable>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
-    <Description>Command-line client for DotVector gRPC servers.</Description>
+    <Description>Command-line tool for local DotVector embedded databases.</Description>
   </PropertyGroup>
 
   <!--
@@ -23,10 +23,9 @@
 
   <ItemGroup>
     <!--
-      CLI 仅引用客户端 SDK 项目（src/DotVector.Data，NuGet 包名 DotVector），同时支持：
-        - 当前命令面：GrpcDotVectorClient → DotVector（gRPC server）
-        - 后续本地命令：可经客户端 SDK 的 Embedded 工厂进入 DotVector.Core
-      不直接引用 DotVector（服务端壳）与 DotVector.Core（嵌入式引擎）。
+      CLI 仅引用客户端 SDK 项目（src/DotVector.Data，NuGet 包名 DotVector），
+      通过 Embedded 工厂打开本地 .dvec/ 数据库目录。
+      不引入 DotVector 独立服务端、gRPC 或 Docker 服务端形态。
     -->
     <ProjectReference Include="..\DotVector.Data\DotVector.Data.csproj" />
   </ItemGroup>

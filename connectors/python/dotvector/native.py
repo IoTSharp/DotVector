@@ -2,7 +2,7 @@
 
 包装 ``connectors/c/include/dotvector.h`` 暴露的 28 个入口，提供 Pythonic API：
 
-- :class:`NativeDotVector` — 数据库句柄（嵌入式或 gRPC 远端）。
+- :class:`NativeDotVector` — 本地嵌入式数据库句柄。
 - :class:`NativeCollection` — 字符串主键的集合，支持 payload + filter。
 - :class:`NativeCollectionInt64` — 兼容旧 v0.1 ABI 的 int64 主键集合。
 
@@ -519,13 +519,12 @@ class Filter:
 
 
 class NativeDotVector:
-    """嵌入式 / 远端 DotVector 数据库的 ctypes 包装。
+    """本地嵌入式 DotVector 数据库的 ctypes 包装。
 
     构造方式：
 
     - ``NativeDotVector()`` — 临时目录里的嵌入式数据库（``dotvector_database_create``）
     - ``NativeDotVector(path)`` / ``NativeDotVector.embedded(path)`` — 打开本地 ``.dvec`` 目录
-    - ``NativeDotVector.connect_remote(endpoint, ...)`` — 通过 gRPC 连接远端服务器
     """
 
     def __init__(
@@ -565,20 +564,12 @@ class NativeDotVector:
         use_proxy: bool = False,
         library_path: str | os.PathLike[str] | None = None,
     ) -> "NativeDotVector":
-        """``dotvector_database_connect`` — gRPC 连接远端 DotVector 服务器。"""
+        """旧版远程连接入口。DotVector 独立服务端模式已删除。"""
 
-        native = _load_native_library(library_path)
-        handle = native.lib.dotvector_database_connect(
-            _encode_utf8(endpoint),
-            _encode_optional_utf8(database),
-            _encode_optional_utf8(api_key),
-            c_int32(1 if use_proxy else 0),
+        _ = endpoint, database, api_key, use_proxy, library_path
+        raise DotVectorNativeError(
+            "DotVector remote server mode has been removed. Use NativeDotVector.embedded(path) for local databases, or use SonnetDB when a service endpoint is required."
         )
-        if not handle:
-            raise DotVectorNativeError(
-                native.last_error() or "dotvector_database_connect failed."
-            )
-        return cls(library_path=library_path, _handle=int(handle))
 
     # -- properties --------------------------------------------------------
 
@@ -1085,7 +1076,7 @@ def connect_remote(
     use_proxy: bool = False,
     library_path: str | os.PathLike[str] | None = None,
 ) -> NativeDotVector:
-    """通过 gRPC 连接远端 DotVector 服务器。"""
+    """旧版远程连接入口。DotVector 独立服务端模式已删除。"""
 
     return NativeDotVector.connect_remote(
         endpoint,

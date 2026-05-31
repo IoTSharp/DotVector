@@ -1,26 +1,17 @@
-using System.Net;
-using System.Net.Http;
 using DotVector.Api;
 using DotVector.Core;
 using DotVector.Core.Protocol;
-using DotVector.Data.Grpc;
-using Grpc.Net.Client;
 
 namespace DotVector.Data;
 
 /// <summary>
 /// DotVector 的高层客户端门面。封装协议级 <see cref="IDotVectorClient"/>，
-/// 提供 Qdrant / Pinecone / Chroma 风格的简洁 API，便于从其它向量数据库切换。
+/// 提供面向本地嵌入式数据库的简洁 API。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 同时支持两套传输：
-/// <list type="bullet">
-///   <item><description><b>远程 gRPC</b>：<see cref="Connect(string)"/> /
-///   <see cref="Connect(string, DotVectorClientOptions)"/></description></item>
-///   <item><description><b>嵌入式（进程内）</b>：<see cref="Embedded(string)"/></description></item>
-/// </list>
-/// 二者通过同一个 <see cref="IDotVectorClient"/> 协议接口对接，所有上层 API 完全一致。
+/// DotVector 独立 Server / gRPC / Docker 服务端形态已经删除；需要服务端
+/// endpoint 时应使用 SonnetDB。DotVector 本仓库只提供本地嵌入式访问。
 /// </para>
 /// <para>
 /// 也可通过 <see cref="DotVectorClient(IDotVectorClient, bool)"/> 注入自定义传输实现
@@ -48,41 +39,29 @@ public sealed class DotVectorClient : IAsyncDisposable
     public IDotVectorClient Protocol => _inner;
 
     // -------------------------------------------------------------------------
-    // 工厂：远程 gRPC
+    // 工厂：已移除的远程服务端兼容入口
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// 通过 gRPC 连接远端 DotVector 服务器。
+    /// DotVector 独立远程服务端已删除；请改用 <see cref="Embedded(string)"/> 或 SonnetDB 服务端。
     /// </summary>
-    /// <param name="endpoint">服务器地址，例如 <c>http://localhost:5180</c>。</param>
+    /// <param name="endpoint">旧版远程服务端地址。该参数仅为源兼容保留。</param>
+    /// <exception cref="NotSupportedException">始终抛出，说明远程服务端模式已移除。</exception>
     public static DotVectorClient Connect(string endpoint)
         => Connect(endpoint, new DotVectorClientOptions());
 
     /// <summary>
-    /// 通过 gRPC 连接远端 DotVector 服务器，并指定连接选项。
+    /// DotVector 独立远程服务端已删除；请改用 <see cref="Embedded(string)"/> 或 SonnetDB 服务端。
     /// </summary>
-    /// <param name="endpoint">服务器地址，例如 <c>http://localhost:5180</c>。</param>
-    /// <param name="options">连接选项（数据库 / 超时 / Handler 等）。</param>
+    /// <param name="endpoint">旧版远程服务端地址。该参数仅为源兼容保留。</param>
+    /// <param name="options">旧版远程连接选项。该参数仅为源兼容保留。</param>
+    /// <exception cref="NotSupportedException">始终抛出，说明远程服务端模式已移除。</exception>
     public static DotVectorClient Connect(string endpoint, DotVectorClientOptions options)
     {
         ArgumentException.ThrowIfNullOrEmpty(endpoint);
         ArgumentNullException.ThrowIfNull(options);
-
-        HttpMessageHandler handler = options.HttpHandler ?? new SocketsHttpHandler
-        {
-            EnableMultipleHttp2Connections = true,
-            UseProxy = options.UseProxy,
-            Proxy = null,
-        };
-
-        var channelOptions = new GrpcChannelOptions
-        {
-            HttpHandler = handler,
-        };
-
-        var channel = GrpcChannel.ForAddress(new Uri(endpoint), channelOptions);
-        var grpc = new GrpcDotVectorClient(channel, options.Database);
-        return new DotVectorClient(grpc, ownsInner: true);
+        throw new NotSupportedException(
+            "DotVector remote server mode has been removed. Use DotVectorClient.Embedded(path) for local databases, or use SonnetDB when a service endpoint is required.");
     }
 
     // -------------------------------------------------------------------------
@@ -104,7 +83,7 @@ public sealed class DotVectorClient : IAsyncDisposable
     // 顶层操作
     // -------------------------------------------------------------------------
 
-    /// <summary>检查与服务端的连接是否正常。</summary>
+    /// <summary>检查本地客户端是否可用。</summary>
     public ValueTask<bool> PingAsync(CancellationToken ct = default)
         => _inner.PingAsync(ct);
 

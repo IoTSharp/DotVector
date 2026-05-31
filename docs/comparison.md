@@ -32,9 +32,9 @@ layout: default
 | **水平扩展** | ❌ 单机 | ✅ 分片 + 副本 | 有限（PG 分区） | ✅（Qdrant Cloud） | 有限 | ❌ |
 | **VectorData 集成** | ✅ 原生（M7） | 适配层 | 适配层 | 适配层 | 适配层 | 适配层 |
 | **Semantic Kernel** | ✅ 直接支持 | 需插件 | 需插件 | 需插件 | 需插件 | 需插件 |
-| **gRPC API** | ✅（M9） | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **容器镜像大小** | ASP.NET runtime 镜像（M9） | ~500 MB | ~500 MB（含 PG） | ~50 MB | ~100 MB | ~200 MB |
-| **启动时间** | 服务端秒级；CLI NativeAOT 毫秒级（M9） | ~30 s（集群） | ~5 s（PG） | ~1 s | < 100 ms | < 500 ms |
+| **gRPC API** | ❌（服务端模式进入 SonnetDB） | ✅ | ❌ | ✅ | ❌ | ❌ |
+| **容器镜像大小** | 不发布服务端镜像 | ~500 MB | ~500 MB（含 PG） | ~50 MB | ~100 MB | ~200 MB |
+| **启动时间** | 进程内加载；CLI NativeAOT 毫秒级 | ~30 s（集群） | ~5 s（PG） | ~1 s | < 100 ms | < 500 ms |
 | **许可证** | MIT | Apache 2.0 | PostgreSQL | Apache 2.0 | Apache 2.0 | Apache 2.0 |
 
 ---
@@ -67,9 +67,9 @@ layout: default
 
 ### 场景 4：Python/Jupyter 快速原型
 
-**推荐**：❓ **Chroma** / **LanceDB**（Python 优先生态）或 ✅ **DotVector Python Connector**（需要复用 DotVector 服务/嵌入式引擎时）
+**推荐**：❓ **Chroma** / **LanceDB**（Python 优先生态）或 ✅ **DotVector Python Connector**（需要复用 DotVector 嵌入式引擎时）
 
-原因：DotVector 已提供 Python gRPC 与 ctypes Native 客户端，但 Python 生态的一站式体验仍在 M16 多语言快速开始中继续补强。
+原因：DotVector 已提供 Python ctypes Native 客户端基础，但 Python 生态的一站式体验仍在 M16 多语言快速开始中继续补强。
 
 ### 场景 5：十亿级向量生产系统
 
@@ -79,12 +79,12 @@ layout: default
 
 ### 场景 6：Kubernetes Sidecar / Serverless Function
 
-**推荐**：✅ **DotVector CLI / 嵌入式客户端**（NativeAOT）或 ✅ **DotVector Server**（轻量 gRPC 服务）
+**推荐**：✅ **DotVector CLI / 嵌入式客户端**（NativeAOT）；需要服务端时使用 SonnetDB
 
 原因：
 - CLI NativeAOT 单文件适合管理命令和冷启动客户端。
-- 服务端 Docker 镜像基于 ASP.NET runtime，适合 sidecar / 单机服务模式。
 - 业务进程内嵌入式使用 `DotVector.Core` 时无需额外数据库进程。
+- 服务端 API、认证、过滤、WAL、Segment 和备份恢复统一由 SonnetDB 承载。
 
 ---
 

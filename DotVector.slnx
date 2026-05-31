@@ -1,6 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/DotVector/DotVector.csproj" />
     <Project Path="src/DotVector.Core/DotVector.Core.csproj" />
     <Project Path="src/DotVector.Data/DotVector.Data.csproj" />
     <Project Path="src/DotVector.VectorData/DotVector.VectorData.csproj" />
@@ -19,7 +18,4 @@
     <Project Path="eng/benchmarks/run-benchmarks/run-benchmarks.csproj" />
     <Project Path="eng/benchmarks/start-benchmark-env/start-benchmark-env.csproj" />
   </Folder>
-  <Project Path="docker-compose.dcproj">
-    <Build />
-  </Project>
 </Solution>

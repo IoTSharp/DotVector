@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.Docker.Sdk">
-  <PropertyGroup>
-    <ProjectVersion>3.1</ProjectVersion>
-    <DockerTargetOS>Linux</DockerTargetOS>
-    <DockerPublishSingleFile>true</DockerPublishSingleFile>
-  </PropertyGroup>
-  <!-- TODO(M9): 配置 DotVector.Cli Native AOT Docker 部署 -->
-</Project>

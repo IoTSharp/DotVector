@@ -8,7 +8,6 @@ namespace DotVector.Core.Protocol;
 /// </summary>
 /// <remarks>
 /// 此 DTO 在协议层传输，不含服务端内部实现细节。
-/// TODO(M9): 映射到 gRPC Protobuf CreateCollectionRequest 消息。
 /// </remarks>
 public sealed class CreateCollectionRequest
 {
@@ -42,9 +41,6 @@ public sealed class CreateCollectionRequest
 /// <summary>
 /// 向量 Upsert（插入或更新）记录 DTO。
 /// </summary>
-/// <remarks>
-/// TODO(M9): 映射到 gRPC Protobuf UpsertRecord 消息。
-/// </remarks>
 public sealed class VectorUpsertRecord
 {
     /// <summary>
@@ -79,9 +75,6 @@ public sealed class VectorUpsertRecord
 /// <summary>
 /// 向量搜索请求 DTO。
 /// </summary>
-/// <remarks>
-/// TODO(M9): 映射到 gRPC Protobuf SearchRequest 消息。
-/// </remarks>
 public sealed class VectorSearchRequest
 {
     /// <summary>
@@ -105,7 +98,7 @@ public sealed class VectorSearchRequest
 
     /// <summary>
     /// 可选的标量过滤条件（M6 后启用，M7.2 启用结构化 <see cref="DotVector.Query.Filter"/>）。
-    /// 服务端在执行 ANN 搜索时会过取候选并应用此 Filter 做 post-filter。
+    /// 底层实现在执行 ANN 搜索时会过取候选并应用此 Filter 做 post-filter。
     /// </summary>
     public Filter? Filter { get; init; }
 
@@ -119,9 +112,6 @@ public sealed class VectorSearchRequest
 /// <summary>
 /// 向量搜索的单条结果 DTO。
 /// </summary>
-/// <remarks>
-/// TODO(M9): 映射到 gRPC Protobuf SearchResult 消息。
-/// </remarks>
 public sealed class VectorSearchResult
 {
     /// <summary>
@@ -151,7 +141,7 @@ public sealed class VectorSearchResult
 
     /// <summary>
     /// 命中记录的向量数据。仅当 <see cref="VectorSearchRequest.IncludeVector"/>
-    /// 为 <see langword="true"/> 时由服务端回填，否则为 <see langword="null"/>。
+    /// 为 <see langword="true"/> 时由底层实现回填，否则为 <see langword="null"/>。
     /// </summary>
     public float[]? Vector { get; init; }
 }
@@ -160,9 +150,6 @@ public sealed class VectorSearchResult
 /// 按 ID 取回向量记录的结果 DTO（M7.1）。
 /// 由 <see cref="IDotVectorClient.GetAsync"/> 返回。
 /// </summary>
-/// <remarks>
-/// TODO(M9): 映射到 gRPC Protobuf VectorRecord 消息。
-/// </remarks>
 public sealed class VectorRecordDto
 {
     /// <summary>
@@ -197,7 +184,6 @@ public sealed class VectorRecordDto
 /// </summary>
 /// <remarks>
 /// 不涉及向量相似度，仅作 payload 字段过滤后按存储顺序返回前 <see cref="Top"/> 条结果。
-/// TODO(M9): 映射到 gRPC Protobuf ScrollRequest 消息。
 /// </remarks>
 public sealed class VectorScrollRequest
 {
@@ -225,12 +211,9 @@ public sealed class VectorScrollRequest
 }
 
 /// <summary>
-/// 描述服务端某个集合元数据的 DTO（M7.3）。
+/// 描述某个集合元数据的 DTO（M7.3）。
 /// 由 <see cref="IDotVectorClient.ListCollectionsAsync"/> 返回。
 /// </summary>
-/// <remarks>
-/// TODO(M9): 映射到 gRPC Protobuf CollectionInfo 消息。
-/// </remarks>
 public sealed class CollectionInfo
 {
     /// <summary>

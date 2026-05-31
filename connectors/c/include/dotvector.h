@@ -1,7 +1,7 @@
 /*
  * DotVector C ABI — public header.
  *
- * 该 ABI 把 DotVector.Data 的高层能力以 NativeAOT 形式暴露给 C/C++/Python/其它 FFI。
+ * 该 ABI 把 DotVector.Data 的本地嵌入式能力以 NativeAOT 形式暴露给 C/C++/Python/其它 FFI。
  *
  * 设计原则：
  *  - 只导出不透明句柄 + 原生缓冲区（int / float / 字节）。
@@ -109,11 +109,10 @@ DOTVECTOR_API dotvector_database_t dotvector_database_create(void);
 DOTVECTOR_API dotvector_database_t dotvector_database_open(const char* path);
 
 /*
- * 通过 gRPC 连接远程 DotVector 服务器。
- *   endpoint:        例如 "http://localhost:5180"，必须非空。
- *   database_name:   多租户数据库名，可为 NULL。
- *   api_key:         鉴权头预留，可为 NULL。
- *   use_proxy:       是否走系统代理；常规建议传 0（避免 loopback 被 HTTP_PROXY 劫持）。
+ * 旧版远程连接入口。DotVector 独立 Server / gRPC 模式已删除。
+ * 该函数保留 ABI 符号用于兼容旧加载器，调用时返回 NULL，并可通过
+ * dotvector_last_error 读取迁移提示。请使用 dotvector_database_open 打开本地
+ * 嵌入式数据库；需要服务端 endpoint 时使用 SonnetDB。
  */
 DOTVECTOR_API dotvector_database_t dotvector_database_connect(
     const char* endpoint,
@@ -125,7 +124,7 @@ DOTVECTOR_API void    dotvector_database_free(dotvector_database_t database);
 DOTVECTOR_API int32_t dotvector_database_flush(dotvector_database_t database);   /* 嵌入式独占 */
 DOTVECTOR_API int32_t dotvector_database_compact(dotvector_database_t database); /* 嵌入式独占 */
 
-/* 检查与服务端连接是否正常。返回 0=失败 / 1=成功 / 负数=错误。 */
+/* 检查本地数据库句柄是否可用。返回 0=失败 / 1=成功 / 负数=错误。 */
 DOTVECTOR_API int32_t dotvector_database_ping(dotvector_database_t database);
 
 /*

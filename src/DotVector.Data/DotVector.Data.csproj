@@ -8,25 +8,14 @@
     <Description>DotVector client SDK and Microsoft.Extensions.VectorData adapter.</Description>
     <!--
       客户端 VectorData 适配层（M7）。
-      此项目【不得】直接引用 DotVector（服务端）。
-      通过 IDotVectorClient（定义于 DotVector.Core）与服务端通信，
-      传输实现（gRPC / 进程内）由调用方在运行时注入。
+      此项目提供本地嵌入式访问和 VectorData 适配，不包含独立服务端、
+      gRPC 或 Docker 服务端形态。
     -->
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-    <PackageReference Include="Grpc.Net.Client" />
-    <PackageReference Include="Google.Protobuf" />
-    <PackageReference Include="Grpc.Tools">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Protobuf Include="..\..\protos\dotvector.proto" GrpcServices="Client" Link="Protos\dotvector.proto" />
   </ItemGroup>
 
   <ItemGroup>

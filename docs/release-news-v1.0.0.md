@@ -5,20 +5,20 @@ layout: default
 
 # DotVector v1.0.0 发布：面向 .NET 10 的嵌入式向量数据库
 
-> 单目录持久化、进程内运行、零外部依赖，现已覆盖 Flat / HNSW / IVF / Vamana 五大索引、SQ8 / PQ / OPQ / RQ 全量化管线，以及 gRPC 服务端与 Docker 部署。
+> 单目录持久化、进程内运行、零外部依赖，现已覆盖 Flat / HNSW / IVF / Vamana 五大索引、SQ8 / PQ / OPQ / RQ 全量化管线，以及本地 Native AOT CLI / C / Python 连接器。
 
 ---
 
 ## 版本概览
 
-DotVector v1.0.0 是一个功能完整的向量数据库引擎，以 NuGet 包和 Docker 镜像两种形态发布。核心引擎 `DotVector.Core` 可以直接嵌入 .NET 应用进程内运行，无需任何外部数据库进程；同时也提供 `DotVector` 服务端宿主，通过 gRPC 对外暴露远程访问能力。
+DotVector v1.0.0 是一个功能完整的嵌入式向量数据库引擎，以 NuGet 包、本地 CLI 和连接器产物发布。核心引擎 `DotVector.Core` 可以直接嵌入 .NET 应用进程内运行，无需任何外部数据库进程。独立 gRPC Server / Docker 服务端形态已删除；需要服务端 endpoint 时由 SonnetDB 承载。
 
 | 发布产物 | 获取方式 |
 |----------|----------|
 | `DotVector.Core` (引擎) | `dotnet add package DotVector.Core` |
 | `DotVector` (客户端 SDK) | `dotnet add package DotVector` |
 | `DotVector.Cli` (命令行) | `dotnet tool install -g DotVector.Cli` |
-| `iotsharp/dotvector` (Docker) | `docker pull iotsharp/dotvector` |
+| C / Python connector | GitHub Release assets |
 
 ---
 
@@ -69,12 +69,12 @@ v1.0.0 完成了 `IVectorQuantizer` 统一量化抽象，提供四种量化器�
 
 ---
 
-## gRPC 服务端与部署
+## 本地 CLI 与连接器
 
-- **gRPC 协议**：`VectorService` 完整实现 Ping / CreateCollection / DeleteCollection / ListCollections / Upsert / Delete / Search / Get / Scroll
-- **Docker 镜像**：`iotsharp/dotvector`，h2c 端口 5180，自动注入版本标签
-- **Native AOT CLI**：`DotVector.Cli` 支持 `PublishAot=true`，零 trim/AOT 警告，支持 `win-x64` / `linux-x64` / `osx-x64` / `osx-arm64`
-- **C / Python 连接器**：C ABI 共享库 + Python gRPC / ctypes 双通道
+- **Native AOT CLI**：`DotVector.Cli` 支持 `PublishAot=true`，打开本地 `.dvec/` 目录执行集合管理命令
+- **C 连接器**：C ABI 共享库暴露本地嵌入式句柄、payload/filter JSON 协议和基础集合操作
+- **Python 连接器**：Python ctypes 客户端复用 C ABI，不再依赖 gRPC / protobuf
+- **服务端模式**：不在 DotVector 中提供，统一进入 SonnetDB
 
 ---
 
@@ -93,7 +93,7 @@ v1.0.0 完成了 `IVectorQuantizer` 统一量化抽象，提供四种量化器�
 |:-----:|:--:|:------:|:---:|:---:|:---:|:---:|
 | ✅ 完成 | ⏳ 基准 | ✅ 完成 | ✅ 完成 | ✅ 完成 | ✅ 完成 | ⏳ 进行中 |
 
-当前已完成 M0–M14（除 M8 基准体系），M16 开发体验补强进行中，覆盖 Code-First 建模、服务端系统库 (`_system.dvec/`)、Vue3 管理台等。
+当前已完成 M0–M14（除 M8 基准体系），M16 开发体验补强进行中，覆盖 Code-First 建模、本地数据库生命周期、本地 CLI、调试界面和多语言快速开始。
 
 ---
 
@@ -103,12 +103,9 @@ v1.0.0 完成了 `IVectorQuantizer` 统一量化抽象，提供四种量化器�
 # NuGet 嵌入式
 dotnet add package DotVector.Core
 
-# Docker 服务器
-docker run -p 5180:5180 -v ./data:/data iotsharp/dotvector
-
-# CLI 连接
+# CLI 本地数据库
 dotnet tool install -g DotVector.Cli
-dotvector ping --endpoint http://localhost:5180
+dotvector ping --data ./data.dvec
 ```
 
 ```csharp
@@ -128,5 +125,4 @@ var results = coll.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 - GitHub: <https://github.com/IoTSharp/DotVector>
 - 文档站: <https://iotsharp.net/DotVector/>
 - NuGet: <https://www.nuget.org/packages/DotVector>
-- Docker Hub: <https://hub.docker.com/r/iotsharp/dotvector>
 - 企业加速版: <https://github.com/IoTSharp/DotVectorEE>

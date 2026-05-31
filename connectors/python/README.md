@@ -2,27 +2,9 @@
 
 This package contains two clients:
 
-- `DotVectorClient`: gRPC client for a running DotVector server.
 - `NativeDotVector`: embedded client that loads the C ABI dynamic library with `ctypes`.
 
 The native client follows the same connector pattern as SonnetDB: `DotVector.Native` is published by the C connector, Python discovers that dynamic library, then calls the stable C ABI with opaque handles and primitive buffers.
-
-## gRPC Quick Start
-
-Start the server:
-
-```bash
-dotnet run --project ../../src/DotVector -- --data ../../artifacts/quickstart/server --port 5180
-```
-
-Run the Python example:
-
-```bash
-pip install -e .
-DOTVECTOR_DATABASE=quickstart_py python examples/basic_usage.py
-```
-
-`DotVectorClient(..., database="name")` selects a named database on the server. If omitted, the server uses `default`.
 
 ## Native Usage (C ABI v0.2)
 
@@ -85,8 +67,7 @@ with NativeDotVector() as db:                    # 临时目录的嵌入式数�
     db.flush()
 ```
 
-`NativeDotVector.connect_remote(endpoint, database=..., api_key=..., use_proxy=False)`
-opens a remote handle backed by `dotvector_database_connect` (gRPC).
+Remote server mode is no longer provided by DotVector. Use SonnetDB when a service endpoint is needed.
 
 ### Filter DSL
 

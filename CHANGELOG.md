@@ -8,6 +8,11 @@
 
 ### Added
 
+- PR #V6：补齐 SonnetDB 集成收尾验收
+  - `tests/DotVector.Benchmarks/AnnRecallBenchmark.cs`：新增 HNSW、IVF-Flat 和 Vamana 在同一批查询上的 Recall@10 基准，便于后续 SonnetDB `VECTOR` 索引参数调优
+  - `tests/DotVector.Accuracy.Tests/AnnRecallMatrixTests.cs`：新增统一召回矩阵，固定 HNSW ≥ 0.95、IVF-Flat ≥ 0.90、IVF-PQ ≥ 0.50、Vamana ≥ 0.92 的 V6 验收门槛
+  - `tests/DotVector.Core.Tests/Persistence/PersistenceTests.cs`：新增完整 `.dvec/` 目录复制备份 / 恢复测试，验证 HNSW 集合重新打开后 Top-K 结果一致
+
 - PR #M16.3：新增本地数据库生命周期管理
   - `LocalVectorDatabaseManager`：新增 `CreateDatabase`、`OpenDatabase`、`ListDatabases`、`CloseDatabase`、`DeleteDatabase`，按根目录管理多个命名 `.dvec/` 数据库
   - 每个本地数据库名称对应独立 `.dvec/` 目录与独立 `DotVector.Core.VectorDatabase` 实例；同一管理器禁止重复打开同名数据库，删除前必须先关闭

@@ -1,4 +1,5 @@
 using DotVector.Api;
+using DotVector.Index.Hnsw;
 using DotVector.Model;
 
 namespace DotVector.Core.Tests.Persistence;
@@ -18,8 +19,7 @@ public sealed class PersistenceTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_root, recursive: true); }
-        catch { /* ignore */ }
+        DeleteDirectoryIfExists(_root);
     }
 
     [Fact]
@@ -122,5 +122,84 @@ public sealed class PersistenceTests : IDisposable
         Assert.True(Directory.Exists(Path.Combine(_root, "wal")));
         Assert.True(Directory.Exists(Path.Combine(_root, "collections")));
         Assert.True(File.Exists(Path.Combine(_root, "catalog.bin")));
+    }
+
+    [Fact]
+    public void BackupCopy_RestoreWithHnswCollection_PreservesTopKResults()
+    {
+        const int dim = 16;
+        const int count = 64;
+        string backupRoot = Path.Combine(Path.GetTempPath(), "dotvec-backup-" + Guid.NewGuid().ToString("N") + ".dvec");
+        string restoreRoot = Path.Combine(Path.GetTempPath(), "dotvec-restore-" + Guid.NewGuid().ToString("N") + ".dvec");
+        float[] query = Vector(9999, dim);
+        int[] before;
+
+        try
+        {
+            using (var db = new VectorDatabase(_root))
+            {
+                var collection = db.CreateCollection<int>("hnsw", dim, Metric.Cosine, IndexKind.Hnsw, new HnswOptions
+                {
+                    M = 8,
+                    EfConstruction = 64,
+                    EfSearch = 64,
+                    Seed = 42,
+                });
+
+                for (int i = 0; i < count; i++)
+                    collection.Insert(new VectorRecord<int>(i, Vector(i, dim)));
+
+                before = collection.Search(query, topK: 10).Select(static result => result.Key).ToArray();
+            }
+
+            CopyDirectory(_root, backupRoot);
+            CopyDirectory(backupRoot, restoreRoot);
+
+            using var restored = new VectorDatabase(restoreRoot);
+            int[] after = restored.GetCollection<int>("hnsw")
+                .Search(query, topK: 10)
+                .Select(static result => result.Key)
+                .ToArray();
+
+            Assert.Equal(before, after);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(backupRoot);
+            DeleteDirectoryIfExists(restoreRoot);
+        }
+    }
+
+    private static float[] Vector(int seed, int dim)
+    {
+        var random = new Random(seed);
+        var vector = new float[dim];
+        for (int i = 0; i < vector.Length; i++)
+            vector[i] = (float)(random.NextDouble() * 2.0 - 1.0);
+        return vector;
+    }
+
+    private static void CopyDirectory(string sourceRoot, string destinationRoot)
+    {
+        Directory.CreateDirectory(destinationRoot);
+        foreach (string directory in Directory.GetDirectories(sourceRoot, "*", SearchOption.AllDirectories))
+        {
+            string relativePath = Path.GetRelativePath(sourceRoot, directory);
+            Directory.CreateDirectory(Path.Combine(destinationRoot, relativePath));
+        }
+
+        foreach (string file in Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
+        {
+            string relativePath = Path.GetRelativePath(sourceRoot, file);
+            string destinationPath = Path.Combine(destinationRoot, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(file, destinationPath, overwrite: true);
+        }
+    }
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (Directory.Exists(path))
+            Directory.Delete(path, recursive: true);
     }
 }

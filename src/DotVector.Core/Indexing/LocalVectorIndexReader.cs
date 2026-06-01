@@ -23,6 +23,8 @@ internal sealed class LocalVectorIndexReader : IVectorIndexReader
 
     public int Count => checked((int)_index.Count);
 
+    internal IIndex<int> Index => _index;
+
     public IReadOnlyList<VectorSearchResult> Search(VectorSearchRequest request)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

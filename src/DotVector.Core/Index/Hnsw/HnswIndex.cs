@@ -302,6 +302,76 @@ public sealed class HnswIndex<TKey> : IIndex<TKey>, IDisposable
         _lock.Dispose();
     }
 
+    internal HnswIndexSnapshot<TKey> CreateSnapshot()
+    {
+        ThrowIfDisposed();
+
+        _lock.EnterReadLock();
+        try
+        {
+            var vectors = CollectionsMarshal.AsSpan(_vectors).ToArray();
+            var keys = _keys.ToArray();
+            var levels = _levels.ToArray();
+            var tombstones = _tombstones.ToArray();
+            var neighbors = new int[_neighbors.Count][][];
+            for (int row = 0; row < _neighbors.Count; row++)
+            {
+                var rowLayers = _neighbors[row];
+                neighbors[row] = new int[rowLayers.Length][];
+                for (int layer = 0; layer < rowLayers.Length; layer++)
+                    neighbors[row][layer] = rowLayers[layer].ToArray();
+            }
+
+            return new HnswIndexSnapshot<TKey>(
+                _dimensions,
+                _metric,
+                _options,
+                vectors,
+                keys,
+                levels,
+                neighbors,
+                tombstones,
+                _entryPoint,
+                _entryLevel);
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    internal static HnswIndex<TKey> FromSnapshot(HnswIndexSnapshot<TKey> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Keys.Length != snapshot.Levels.Length || snapshot.Keys.Length != snapshot.Neighbors.Length)
+            throw new InvalidDataException("HNSW snapshot row counts do not match.");
+        if (snapshot.Vectors.Length != checked(snapshot.Keys.Length * snapshot.Dimensions))
+            throw new InvalidDataException("HNSW snapshot vector length does not match metadata.");
+
+        var index = new HnswIndex<TKey>(
+            snapshot.Dimensions,
+            snapshot.Metric,
+            snapshot.Options,
+            snapshot.Keys.Length);
+        index._vectors.AddRange(snapshot.Vectors);
+        index._keys.AddRange(snapshot.Keys);
+        for (int row = 0; row < snapshot.Keys.Length; row++)
+            index._keyToRow.Add(snapshot.Keys[row], row);
+        index._levels.AddRange(snapshot.Levels);
+        foreach (var rowLayers in snapshot.Neighbors)
+        {
+            var layers = new List<int>[rowLayers.Length];
+            for (int layer = 0; layer < rowLayers.Length; layer++)
+                layers[layer] = new List<int>(rowLayers[layer]);
+            index._neighbors.Add(layers);
+        }
+        foreach (int row in snapshot.Tombstones)
+            index._tombstones.Add(row);
+        index._entryPoint = snapshot.EntryPoint;
+        index._entryLevel = snapshot.EntryLevel;
+        return index;
+    }
+
     // -------- internals --------
 
     private void EnsureDimension(int actual)

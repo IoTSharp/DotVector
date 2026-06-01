@@ -109,6 +109,120 @@ public sealed class CodeFirstTests
     }
 
     [Fact]
+    public void ConvenienceApi_Upsert_Find_Get_SearchTop1_And_Threshold_Work()
+    {
+        using var db = new VectorDatabase();
+        using var context = new AttributeContext(db);
+
+        context.Articles.Upsert(new Article
+        {
+            Id = "doc-1",
+            Title = "alpha",
+            Category = "guide",
+            Text = new float[] { 1f, 0f, 0f },
+        });
+        context.Articles.Upsert(new Article
+        {
+            Id = "doc-2",
+            Title = "beta",
+            Category = "reference",
+            Text = new float[] { 0f, 1f, 0f },
+        });
+        context.Articles.Upsert(new Article
+        {
+            Id = "doc-1",
+            Title = "alpha-updated",
+            Category = "guide",
+            Text = new float[] { 1f, 0f, 0f },
+        });
+
+        DotVectorRecordResult? found = context.Articles.Find("doc-1");
+        DotVectorRecordResult got = context.Articles.Get("doc-1");
+        DotVectorSearchResult? top1 = context.Articles.SearchTop1(
+            new float[] { 1f, 0f, 0f },
+            filter: Filter.Eq("Category", "guide"));
+        IReadOnlyList<DotVectorSearchResult> thresholdResults = context.Articles.SearchByThreshold(
+            new float[] { 1f, 0f, 0f },
+            threshold: 0.01f,
+            topK: 2);
+
+        Assert.NotNull(found);
+        Assert.Equal("alpha-updated", found.Payload!["Title"]);
+        Assert.Equal("doc-1", got.Key);
+        Assert.Equal(new float[] { 1f, 0f, 0f }, got.Vector);
+        Assert.NotNull(top1);
+        Assert.Equal("doc-1", top1.Key);
+        Assert.Single(thresholdResults);
+        Assert.Equal("doc-1", thresholdResults[0].Key);
+        Assert.Null(context.Articles.Find("missing"));
+        Assert.Throws<KeyNotFoundException>(() => context.Articles.Get("missing"));
+    }
+
+    [Fact]
+    public void ConvenienceApi_SelectsMultiVectorFieldBySelectorOrName()
+    {
+        using var db = new VectorDatabase();
+        using var context = new MultiVectorContext(db);
+
+        context.Assets.Upsert(new Asset
+        {
+            Id = 1,
+            Name = "pump",
+            TextVector = new float[] { 1f, 0f },
+            ImageVector = new float[] { 0f, 1f },
+        });
+        context.Assets.Upsert(new Asset
+        {
+            Id = 2,
+            Name = "valve",
+            TextVector = new float[] { 0f, 1f },
+            ImageVector = new float[] { 1f, 0f },
+        });
+
+        DotVectorSearchResult? textResult = context.Assets.SearchTop1(
+            new float[] { 1f, 0f },
+            asset => asset.TextVector);
+        IReadOnlyList<DotVectorSearchResult> imageResults = context.Assets.SearchByThreshold(
+            new float[] { 1f, 0f },
+            threshold: 0.01f,
+            topK: 2,
+            asset => asset.ImageVector);
+        IReadOnlyList<DotVectorSearchResult> namedResults = context.Assets.Search(
+            new float[] { 1f, 0f },
+            topK: 1,
+            vectorFieldName: "image");
+
+        Assert.NotNull(textResult);
+        Assert.Equal(1, textResult.Key);
+        Assert.Equal("text", textResult.VectorFieldName);
+        Assert.Single(imageResults);
+        Assert.Equal(2, imageResults[0].Key);
+        Assert.Equal("image", imageResults[0].VectorFieldName);
+        Assert.Equal(2, namedResults[0].Key);
+    }
+
+    [Fact]
+    public void ConvenienceApi_SelectorWorksWithExplicitSingleVectorSchema()
+    {
+        using var db = new VectorDatabase();
+        using var context = new ExplicitContext(db);
+        DotVectorSet<ExplicitDoc> docs = context.Set<ExplicitDoc>();
+
+        docs.Upsert(new ExplicitDoc(
+            Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            "green",
+            new ReadOnlyMemory<float>(new float[] { 0f, 1f })));
+
+        DotVectorSearchResult? result = docs.SearchTop1(
+            new float[] { 0f, 1f },
+            doc => doc.Embedding,
+            Filter.Eq("Kind", "green"));
+
+        Assert.NotNull(result);
+        Assert.Equal(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), result.Key);
+    }
+
+    [Fact]
     public void Set_WithoutExplicitSchema_ThrowsClearAotMessage()
     {
         using var db = new VectorDatabase();

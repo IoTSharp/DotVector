@@ -8,6 +8,12 @@
 
 ### Added
 
+- PR #M16.2：新增 Code-First 便捷查询 API
+  - `DotVectorSet<TEntity>`：新增 `SearchTop1`、`SearchByThreshold`、`Upsert`、`Find` / `Get` 便捷方法，`Upsert` 对重复主键执行覆盖写入，`Find` 未命中返回 `null`，`Get` 未命中抛 `KeyNotFoundException`
+  - 多向量字段查询支持 `vectorFieldName` 与 `Expression<Func<TEntity, object?>>` selector 两种选择方式；Attribute schema 会把 CLR 属性名映射到 `[DotVectorVector(Name=...)]` 的存储字段名，显式单向量 schema 支持 selector 兜底
+  - `SearchTop1` / `SearchByThreshold` 继续复用现有 `Search(..., Filter?)` 路径；VectorData 侧已有 `SearchAsync` / `GetAsync(filter)` 通过 LINQ Filter 翻译器复用表达式过滤
+  - `tests/DotVector.Core.Tests/CodeFirst/CodeFirstTests.cs`：新增 3 个测试覆盖覆盖写入、`Find` / `Get`、阈值过滤、字段名 / selector 多向量查询和显式 schema selector
+
 - PR #M16.1：新增 Code-First 嵌入式体验
   - `src/DotVector.Core/CodeFirst/`：新增 `[DotVectorKey]`、`[DotVectorVector]`、`[DotVectorIndex]` Attribute，支持声明实体主键、多个向量字段、维度、Metric、IndexKind 与 HNSW / IVF / Vamana 索引参数
   - `DotVectorDbContext` / `DotVectorSet<TEntity>`：自动发现上下文集合属性并绑定到 `VectorDatabase`，一个实体的多个向量字段会映射到彼此独立的底层集合

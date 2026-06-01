@@ -13,11 +13,24 @@ internal abstract class DotVectorSetRuntime<TEntity>
 
     public abstract void Insert(TEntity entity, string? vectorFieldName);
 
+    public abstract void Upsert(TEntity entity, string? vectorFieldName);
+
     public abstract IReadOnlyList<DotVectorSearchResult> Search(
         ReadOnlySpan<float> query,
         int topK,
         string? vectorFieldName,
         Filter? filter);
+
+    public abstract IReadOnlyList<DotVectorSearchResult> SearchByThreshold(
+        ReadOnlySpan<float> query,
+        float threshold,
+        int topK,
+        string? vectorFieldName,
+        Filter? filter);
+
+    public abstract DotVectorRecordResult? Find(object key, string? vectorFieldName);
+
+    public abstract string ResolveVectorFieldName(string memberName);
 
     public abstract bool Delete(object key, string? vectorFieldName);
 
@@ -81,6 +94,25 @@ internal sealed class DotVectorSetRuntime<TEntity, TKey> : DotVectorSetRuntime<T
         InsertOne(entity, single, _schema.Accessors.PayloadGetter(entity));
     }
 
+    public override void Upsert(TEntity entity, string? vectorFieldName)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        TKey key = _schema.Accessors.KeyGetter(entity);
+
+        if (vectorFieldName is null)
+        {
+            foreach (Collection<TKey> collection in _collections.Values)
+            {
+                collection.Delete(key);
+            }
+            Insert(entity, vectorFieldName: null);
+            return;
+        }
+
+        _collections[GetVector(vectorFieldName).Name].Delete(key);
+        Insert(entity, vectorFieldName);
+    }
+
     public override IReadOnlyList<DotVectorSearchResult> Search(
         ReadOnlySpan<float> query,
         int topK,
@@ -100,6 +132,74 @@ internal sealed class DotVectorSetRuntime<TEntity, TKey> : DotVectorSetRuntime<T
             });
         }
         return results;
+    }
+
+    public override IReadOnlyList<DotVectorSearchResult> SearchByThreshold(
+        ReadOnlySpan<float> query,
+        float threshold,
+        int topK,
+        string? vectorFieldName,
+        Filter? filter)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(topK);
+        DotVectorVectorFieldMetadata vector = _schema.GetVector(vectorFieldName);
+        IReadOnlyList<DotVectorSearchResult> hits = Search(query, topK, vector.Name, filter);
+        bool largerIsBetter = vector.Metric is Metric.InnerProduct or Metric.DotProduct;
+        var results = new List<DotVectorSearchResult>(hits.Count);
+        foreach (DotVectorSearchResult hit in hits)
+        {
+            if (largerIsBetter ? hit.Score >= threshold : hit.Score <= threshold)
+            {
+                results.Add(hit);
+            }
+        }
+        return results;
+    }
+
+    public override DotVectorRecordResult? Find(object key, string? vectorFieldName)
+    {
+        if (key is not TKey typedKey)
+        {
+            throw new ArgumentException(
+                $"主键类型 {key.GetType().FullName} 与实体 {typeof(TEntity).FullName} 的 TKey={typeof(TKey).FullName} 不一致。",
+                nameof(key));
+        }
+
+        DotVectorVectorFieldMetadata vector = _schema.GetVector(vectorFieldName);
+        if (!_collections[vector.Name].TryGet(typedKey, out VectorRecord<TKey>? record) || record is null)
+        {
+            return null;
+        }
+
+        return new DotVectorRecordResult(record.Key, record.Vector, vector.Name)
+        {
+            Payload = NormalizePayload(record.Payload),
+        };
+    }
+
+    public override string ResolveVectorFieldName(string memberName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(memberName);
+        if (_vectors.ContainsKey(memberName))
+        {
+            return memberName;
+        }
+
+        foreach (DotVectorVectorFieldMetadata vector in _schema.Vectors)
+        {
+            if (string.Equals(vector.SourceMemberName, memberName, StringComparison.Ordinal))
+            {
+                return vector.Name;
+            }
+        }
+
+        if (_schema.Vectors.Count == 1)
+        {
+            return _schema.Vectors[0].Name;
+        }
+
+        throw new KeyNotFoundException(
+            $"实体 {typeof(TEntity).FullName} 未注册与 selector 成员 '{memberName}' 对应的向量字段。");
     }
 
     public override bool Delete(object key, string? vectorFieldName)
@@ -227,5 +327,20 @@ internal sealed class DotVectorSetRuntime<TEntity, TKey> : DotVectorSetRuntime<T
             }
         }
         return result.Count == 0 ? null : result;
+    }
+
+    private static IReadOnlyDictionary<string, object?>? NormalizePayload(Dictionary<string, object>? payload)
+    {
+        if (payload is null || payload.Count == 0)
+        {
+            return null;
+        }
+
+        var result = new Dictionary<string, object?>(payload.Count, StringComparer.Ordinal);
+        foreach (KeyValuePair<string, object> kv in payload)
+        {
+            result[kv.Key] = kv.Value;
+        }
+        return result;
     }
 }

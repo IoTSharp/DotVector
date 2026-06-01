@@ -42,7 +42,8 @@ internal static class DotVectorAttributeSchemaBuilder
                     vectorAttribute.Dimensions,
                     vectorAttribute.Metric,
                     indexAttribute?.IndexKind ?? IndexKind.Flat,
-                    indexAttribute?.ToOptions() ?? new DotVectorIndexOptions());
+                    indexAttribute?.ToOptions() ?? new DotVectorIndexOptions(),
+                    property.Name);
                 vectorFields.Add(metadata);
                 vectorGetters.Add(vectorName, CompileVectorGetter<TEntity>(property));
                 continue;

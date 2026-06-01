@@ -23,6 +23,18 @@ public sealed class DotVectorVectorFieldMetadata
         Metric metric,
         IndexKind indexKind,
         DotVectorIndexOptions indexOptions)
+        : this(name, collectionName, dimensions, metric, indexKind, indexOptions, sourceMemberName: null)
+    {
+    }
+
+    internal DotVectorVectorFieldMetadata(
+        string name,
+        string? collectionName,
+        int dimensions,
+        Metric metric,
+        IndexKind indexKind,
+        DotVectorIndexOptions indexOptions,
+        string? sourceMemberName)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimensions);
@@ -33,6 +45,7 @@ public sealed class DotVectorVectorFieldMetadata
         Metric = metric;
         IndexKind = indexKind;
         IndexOptions = indexOptions;
+        SourceMemberName = string.IsNullOrWhiteSpace(sourceMemberName) ? null : sourceMemberName;
     }
 
     /// <summary>向量字段名称。</summary>
@@ -52,4 +65,6 @@ public sealed class DotVectorVectorFieldMetadata
 
     /// <summary>索引参数。</summary>
     public DotVectorIndexOptions IndexOptions { get; }
+
+    internal string? SourceMemberName { get; }
 }

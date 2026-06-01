@@ -560,13 +560,15 @@ my-database.dvec/
 | Milestone | 内容 | 参考 |
 |-----------|------|------|
 | M15 | 分布式分片 — 一致性哈希路由，多节点扩展 | Milvus 分布式架构 |
-| M16 | 开发体验补强：Code-First 开发体验、服务端系统目录、管理 API、Vue3 管理台、文档站与多语言快速开始 | EF Core、Qdrant Console、Milvus Attu |
+| M16 | 开发体验补强：Code-First、本地数据库生命周期；M16.3 后收口，后续重心转向 SonnetDB 集成 | EF Core、SonnetDB 多模型路线 |
 
 ---
 
-## ⏳ M16 — 开发体验 + 服务端管理面 + 文档站
+## ✅ M16 — 开发体验补强（M16.3 后收口）
 
-**背景**：DotVector 在 Segment 持久化、mmap、VectorData、量化与 Vamana 上已经形成较完整的底层数据库能力；下一阶段应补齐开发者第一步体验、本地数据库生命周期和本地调试工具。M16 重点吸收成熟嵌入式库常见的产品能力：Code-First 声明式建模、自动上下文、多向量字段、数据库生命周期管理、本地调试与多语言快速开始。
+**背景**：DotVector 在 Segment 持久化、mmap、VectorData、量化与 Vamana 上已经形成较完整的底层数据库能力；M16 已补齐 Code-First 声明式建模、自动上下文、多向量字段、便捷查询 API 和本地数据库生命周期管理。
+
+**收口决策**：M16.4-M16.8 不再作为 DotVector 独立产品路线推进。后续工程重心转向 SonnetDB 对 DotVector 的库级集成：SonnetDB 保留 `VECTOR` 类型、SQL、WAL、Segment、过滤下推、备份恢复和多模型体验；DotVector 继续承担距离计算、ANN 索引、量化和 VectorData 适配等向量引擎能力。
 
 **产品判断**：
 - DotVector 不把 SQL 作为第一优先级。管理面使用本地 API / CLI；数据面使用 SDK / VectorData；过滤继续走 `Filter` AST 与 LINQ Expression 翻译。
@@ -586,32 +588,18 @@ my-database.dvec/
 - **M16.3 本地数据库生命周期管理** ✅ 已完成
   - ✅ 增加本地数据库生命周期管理：`CreateDatabase`、`OpenDatabase`、`ListDatabases`、`CloseDatabase`、`DeleteDatabase`。
   - ✅ 每个数据库实例对应一个独立 `DotVector.Core.VectorDatabase` 与一个 `.dvec/` 目录。
-- **M16.4 本地 CLI**
-  - `DotVector.Cli` 增加 `database create/list/open/delete`、`collection list/create/delete` 和本地 search/debug 命令。
-  - CLI 直接调用本地嵌入式 API，不连接 DotVector Server。
-- **M16.5 本地调试界面**
-  - 可选新增轻量本地调试界面或示例应用，管理数据库、集合、payload schema、索引参数。
-  - 提供向量查询调试页：输入向量 / JSON payload filter / topK，展示结果与分数。
-- **M16.6 文档站与发布**
-  - `docs/` 作为 GitHub Pages 文档源，使用 `JekyllNet/action@v2.5` 构建并发布。
-  - 发布文档覆盖 NuGet、GitHub Release、Pages、组织级 API key。
-  - 固定 JekyllNet tool version，并保留 GitHub Pages artifact 部署步骤。
-- **M16.7 多语言快速开始**
-  - 以 `connectors/python/examples/basic_usage.py` 的体验为基准，补 Python、C、C# 三份快速开始。
-  - 示例覆盖：创建数据库、创建集合、入库、查询、过滤、关闭 / flush。
-- **M16.8 可选 KDTree**
-  - 作为低维小集合精确索引补充，目标维度 < 20，数据量 < 10K。
-  - 不进入默认索引选择；仅 Code-First Attribute 或显式 API 选择时启用。
+- **M16.4-M16.8 独立产品化任务** ⏸️ 不再推进
+  - 暂停 DotVector 独立本地 CLI、独立调试界面、额外多语言快速开始和 KDTree 等任务。
+  - 文档站仅保留已有发布能力；不再为了 DotVector 独立产品体验继续扩展本 milestone。
+  - 后续新增向量算法、索引格式或调试能力时，优先服务 SonnetDB 集成场景，再决定是否回流到 DotVector 公共 API。
 
 **验收标准**：
-- [ ] `DotVectorDbContext` 示例可在无服务端情况下创建 `.dvec/`，插入实体并搜索。
-- [ ] 多向量字段实体可分别按文本向量 / 图像向量检索，索引参数互不干扰。
-- [ ] 本地 CLI 可创建并打开多个数据库实例；每个实例落在独立 `.dvec/` 目录。
-- [ ] DotVector 不重新引入独立服务端项目。
-- [ ] 本地调试界面或示例应用可完成数据库列表、集合列表、创建集合、插入记录、向量查询。
-- [ ] GitHub Pages 文档站构建成功，发布流水线仍可使用组织级 NuGet API key。
-- [ ] Python / C / C# 快速开始可本地运行或编译。
-- [ ] 所有新增 public API 有中文 XML 文档注释；无 `unsafe`。
+- [x] `DotVectorDbContext` 可在无服务端情况下绑定 `VectorDatabase`，插入实体并搜索。
+- [x] 多向量字段实体可分别按文本向量 / 图像向量检索，索引参数互不干扰。
+- [x] 本地生命周期 API 可创建、列出、关闭、重新打开和删除多个独立 `.dvec/` 数据库目录。
+- [x] DotVector 不重新引入独立服务端项目。
+- [x] 所有新增 public API 有中文 XML 文档注释；无 `unsafe`。
+- [ ] SonnetDB 通过库级 adapter 复用 DotVector 的距离计算、ANN 索引和量化能力。
 
 **PR 切分**：
 | PR | 内容 |
@@ -619,11 +607,7 @@ my-database.dvec/
 | #M16.1 | Code-First Attribute + `DotVectorDbContext` / `DotVectorSet<TEntity>` 最小闭环 |
 | #M16.2 | 多向量字段 + `SearchTop1` / `SearchByThreshold` / `Upsert` 便捷 API |
 | #M16.3 | 本地数据库注册表 + 数据库生命周期管理 |
-| #M16.4 | 本地 CLI 管理命令 |
-| #M16.5 | 本地调试界面或示例应用第一版 |
-| #M16.6 | GitHub Pages 文档站 + NuGet 组织 key 发布文档 |
-| #M16.7 | Python / C / C# 快速开始 |
-| #M16.8 | KDTree 低维精确索引（可选） |
+| #M16.4-#M16.8 | 不再作为 DotVector 独立路线推进；需求转入 SonnetDB + DotVector 集成路线按需拆分 |
 
 ---
 

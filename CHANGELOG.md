@@ -29,6 +29,8 @@
 
 ### Changed
 
+- M16 路线收口：M16.4-M16.8 不再作为 DotVector 独立产品化任务推进，后续重心转向 SonnetDB 对 DotVector 的库级集成；DotVector 继续提供向量算法、索引、量化和 VectorData 能力。
+
 - 收紧 DotVector V1 定位：后续 SonnetDB 集成只走本地嵌入式 / 库级 API，独立 gRPC Server、Docker 服务端和远程数据库形态不再作为新的产品路线或 SonnetDB 依赖路径。
 
 - `src/DotVector.Data` 客户端 SDK 项目显式设置 NuGet `PackageId=DotVector`，发布产物从 `DotVector.Data` 包名调整为 `DotVector`，程序集名与命名空间保持 `DotVector.Data` 不变。

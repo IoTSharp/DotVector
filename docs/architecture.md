@@ -132,6 +132,8 @@ graph TD
 |------|------|
 | `VectorDatabase` | 嵌入式数据库实例，一个实例对应一个内存数据库或 `.dvec/` 目录 |
 | `Collection<TKey>` | 单个集合，封装索引、payload、过滤、flush 与恢复 |
+| `DotVectorDbContext` | Code-First 嵌入式上下文，自动绑定 `DotVectorSet<TEntity>` 到 `VectorDatabase` |
+| `DotVectorSet<TEntity>` | Code-First 实体集合，支持一个实体映射多个向量字段集合 |
 | `LocalDotVectorClient` | 实现 `IDotVectorClient`，进程内直接调用 `VectorDatabase` |
 | `IDotVectorClient` | SDK / VectorData 适配层的本地协议抽象 |
 | `IIndex<TKey>` | 向量索引抽象 |
@@ -238,6 +240,20 @@ my-database.dvec/
   → Collection.Search(queryVec, topK)
     → Index → TensorPrimitives / IBatchScorer
 ```
+
+### Code-First 嵌入式访问
+
+```text
+用户应用
+  → DotVectorDbContext
+    → DotVectorSet<TEntity>
+      → DotVectorEntitySchema / 预编译访问器
+        → VectorDatabase / Collection<TKey>
+          → Index → Compute
+```
+
+Attribute 自动发现适合普通开发；Native AOT 或 trim 敏感应用可显式注册
+`DotVectorEntitySchema<TEntity,TKey>`，避免运行时扫描实体类型。
 
 ### 通过 SDK / VectorData 的本地访问
 

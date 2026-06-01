@@ -34,7 +34,7 @@ layout: default
 <div class="doc-grid">
   <a class="doc-card" href="/DotVector/architecture/">
     <strong>架构总览</strong>
-    <span>Core / Data / CLI 分层，以及 SonnetDB 库级 adapter 边界。</span>
+    <span>Core / Code-First / Data / CLI 分层，以及 SonnetDB 库级 adapter 边界。</span>
   </a>
   <a class="doc-card" href="/DotVector/algorithms/">
     <strong>算法参考</strong>
@@ -67,7 +67,7 @@ layout: default
 <div class="feature-grid">
   <div class="feature-card">
     <strong>DotVector.Core</strong>
-    <span>嵌入式数据库引擎，包含 VectorDatabase、索引、持久化、过滤、量化与协议抽象。</span>
+    <span>嵌入式数据库引擎，包含 VectorDatabase、Code-First、索引、持久化、过滤、量化与协议抽象。</span>
   </div>
   <div class="feature-card">
     <strong>DotVector.Data</strong>

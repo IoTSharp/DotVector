@@ -70,6 +70,7 @@ DotVector 是一个基于 C# / .NET 10 的向量数据库项目，核心引擎�
 
 ```csharp
 using DotVector.Api;
+using DotVector.CodeFirst;
 using DotVector.Model;
 
 using var db = new VectorDatabase();
@@ -78,6 +79,29 @@ var collection = db.CreateCollection<string>("articles", dimensions: 4, metric: 
 collection.Insert(new VectorRecord<string>("doc-1", [0.95f, 0.10f, 0.08f, 0.02f]));
 
 var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
+```
+
+Code-First 嵌入式体验：
+
+```csharp
+public sealed class Article
+{
+    [DotVectorKey]
+    public string Id { get; init; } = "";
+
+    public string Title { get; init; } = "";
+
+    [DotVectorVector(384, Metric = Metric.Cosine)]
+    [DotVectorIndex(IndexKind.Hnsw, HnswM = 16, EfSearch = 64)]
+    public float[] Embedding { get; init; } = [];
+}
+
+public sealed class AppVectorContext : DotVectorDbContext
+{
+    public AppVectorContext(string path) : base(path) => BindSets();
+
+    public DotVectorSet<Article> Articles { get; private set; } = null!;
+}
 ```
 
 更完整的可运行示例见 [`examples/csharp/QuickStart`](examples/csharp/QuickStart/README.md)。
@@ -107,7 +131,7 @@ var results = collection.Search([0.92f, 0.12f, 0.07f, 0.03f], topK: 5);
 
 DotVector 的底层引擎已经覆盖索引、持久化、量化与 VectorData；后续会继续补强本地开发体验和 SonnetDB adapter 所需的库级边界：
 
-- Code-First / Attribute 建模
+- Code-First / Attribute 建模（M16.1 已完成最小闭环）
 - `DotVector.Primitives` / `DotVector.Indexing` 稳定 API
 - 索引序列化 blob 与版本兼容
 - 数据库创建、连接和本地管理

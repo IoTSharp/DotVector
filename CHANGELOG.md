@@ -8,6 +8,12 @@
 
 ### Added
 
+- PR #M16.1：新增 Code-First 嵌入式体验
+  - `src/DotVector.Core/CodeFirst/`：新增 `[DotVectorKey]`、`[DotVectorVector]`、`[DotVectorIndex]` Attribute，支持声明实体主键、多个向量字段、维度、Metric、IndexKind 与 HNSW / IVF / Vamana 索引参数
+  - `DotVectorDbContext` / `DotVectorSet<TEntity>`：自动发现上下文集合属性并绑定到 `VectorDatabase`，一个实体的多个向量字段会映射到彼此独立的底层集合
+  - `DotVectorEntitySchema<TEntity,TKey>` / `DotVectorEntityAccessors<TEntity,TKey>`：提供显式 schema registration 入口，用户可传入编译期 lambda 作为 AOT 兜底路径；Attribute 路径会预编译访问器，避免插入与搜索热路径反射
+  - `tests/DotVector.Core.Tests/CodeFirst/CodeFirstTests.cs`：新增 6 个测试，覆盖 Attribute 自动绑定、多向量字段、显式 schema 注册、缺少 schema、未指定多向量字段和维度不匹配
+
 - 新增 `DotVector.Primitives` / `DotVector.Indexing` 库级 API：提供 lower-is-better `KnnMetric` / `VectorDistance` facade，以及 `IVectorIndexBuilder` / `IVectorIndexReader`、`LocalVectorIndexBuilder`、连续 float32 payload 构建和搜索入口，供 SonnetDB adapter 复用 DotVector 本地引擎而不依赖服务端模式。
 
 ### Changed

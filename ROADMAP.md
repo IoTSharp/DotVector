@@ -25,7 +25,7 @@ DotVector 路线图，按 Milestone 划分。每个 Milestone 对应一个或多
 | M13 | ✅ | 量化扩展：SQ8 / OPQ / RQ + 通用量化抽象 |
 | M14 | ✅ | 硬件加速接口：`IBatchScorer` 抽象（CE 仅保留 M14.1；具体加速后端见 [DotVectorEE](https://github.com/IoTSharp/DotVectorEE)）|
 | V1 | 🚧 | SonnetDB 库级集成 API：Primitives / Indexing facade |
-| M16 | ⏳ | 开发体验补强：Code-First、本地管理、文档站与示例 |
+| M16 | 🚧 | 开发体验补强：Code-First、本地管理、文档站与示例 |
 
 ---
 
@@ -575,10 +575,10 @@ my-database.dvec/
 
 **实现内容**：
 - **M16.1 Code-First 嵌入式体验**
-  - 新增 `[DotVectorKey]`、`[DotVectorVector]`、`[DotVectorIndex]` Attribute。
-  - 新增 `DotVectorDbContext` / `DotVectorSet<TEntity>`，自动发现集合属性并绑定到 `VectorDatabase`。
-  - 支持一个实体多个向量字段，每个字段可配置维度、Metric、IndexKind 与索引参数。
-  - 元数据访问器预编译，避免热路径反射；AOT 下提供显式 schema registration 兜底。
+  - ✅ 新增 `[DotVectorKey]`、`[DotVectorVector]`、`[DotVectorIndex]` Attribute。
+  - ✅ 新增 `DotVectorDbContext` / `DotVectorSet<TEntity>`，自动发现集合属性并绑定到 `VectorDatabase`。
+  - ✅ 支持一个实体多个向量字段，每个字段可配置维度、Metric、IndexKind 与索引参数。
+  - ✅ 元数据访问器预编译，避免热路径反射；AOT 下提供显式 schema registration 兜底。
 - **M16.2 便捷查询 API**
   - `SearchTop1`、`SearchByThreshold`、`Upsert`、`Find` / `Get` 便捷方法。
   - 多向量字段查询可通过 selector 或字段名选择。

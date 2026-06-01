@@ -1,6 +1,8 @@
 using DotVector.Core;
+using DotVector.Index.DiskAnn;
 using DotVector.Index.Flat;
 using DotVector.Index.Hnsw;
+using DotVector.Index.Ivf;
 using DotVector.Primitives;
 
 namespace DotVector.Indexing;
@@ -24,6 +26,9 @@ public sealed class LocalVectorIndexBuilder : IVectorIndexBuilder
         {
             VectorIndexAlgorithm.Hnsw => BuildHnsw(input),
             VectorIndexAlgorithm.Flat => BuildFlat(input),
+            VectorIndexAlgorithm.IvfFlat => BuildIvfFlat(input),
+            VectorIndexAlgorithm.IvfPq => BuildIvfPq(input),
+            VectorIndexAlgorithm.Vamana => BuildVamana(input),
             _ => throw new NotSupportedException($"不支持的向量索引算法：{input.Algorithm}。"),
         };
     }
@@ -50,6 +55,84 @@ public sealed class LocalVectorIndexBuilder : IVectorIndexBuilder
             input.Count);
         AddRows(index, input.Vectors.Span, input.Count, input.Dimension);
         return new LocalVectorIndexReader(index, input.Algorithm, input.Metric);
+    }
+
+    private static IVectorIndexReader BuildIvfFlat(VectorIndexBuildInput input)
+    {
+        var options = ToIvfOptions(input.Ivf ?? new VectorIndexIvfOptions());
+        var index = new IvfFlatIndex<int>(
+            input.Dimension,
+            VectorDistance.ToDotVectorMetric(input.Metric),
+            options,
+            input.Count);
+        AddRows(index, input.Vectors.Span, input.Count, input.Dimension);
+        return new LocalVectorIndexReader(index, input.Algorithm, input.Metric);
+    }
+
+    private static IVectorIndexReader BuildIvfPq(VectorIndexBuildInput input)
+    {
+        var options = ToIvfPqOptions(input.IvfPq ?? new VectorIndexIvfPqOptions());
+        var index = new IvfPqIndex<int>(
+            input.Dimension,
+            VectorDistance.ToDotVectorMetric(input.Metric),
+            options,
+            input.Count);
+        AddRows(index, input.Vectors.Span, input.Count, input.Dimension);
+        return new LocalVectorIndexReader(index, input.Algorithm, input.Metric);
+    }
+
+    private static IVectorIndexReader BuildVamana(VectorIndexBuildInput input)
+    {
+        var options = ToVamanaOptions(input.Vamana ?? new VectorIndexVamanaOptions());
+        var index = new VamanaIndex<int>(
+            input.Dimension,
+            VectorDistance.ToDotVectorMetric(input.Metric),
+            options,
+            input.Count);
+        AddRows(index, input.Vectors.Span, input.Count, input.Dimension);
+        return new LocalVectorIndexReader(index, input.Algorithm, input.Metric);
+    }
+
+    private static IvfOptions ToIvfOptions(VectorIndexIvfOptions source)
+    {
+        var options = new IvfOptions
+        {
+            NList = source.NList,
+            NProbe = source.NProbe,
+            MaxIterations = source.MaxIterations,
+            Seed = source.Seed,
+        };
+        options.Validate();
+        return options;
+    }
+
+    private static IvfPqOptions ToIvfPqOptions(VectorIndexIvfPqOptions source)
+    {
+        var options = new IvfPqOptions
+        {
+            NList = source.NList,
+            NProbe = source.NProbe,
+            MaxIterations = source.MaxIterations,
+            M = source.M,
+            NBits = source.NBits,
+            Seed = source.Seed,
+        };
+        options.Validate();
+        return options;
+    }
+
+    private static VamanaOptions ToVamanaOptions(VectorIndexVamanaOptions source)
+    {
+        var options = new VamanaOptions
+        {
+            MaxDegree = source.MaxDegree,
+            SearchListSize = source.SearchListSize,
+            Alpha = source.Alpha,
+            BeamWidth = source.BeamWidth,
+            Seed = source.Seed,
+        };
+        options.Validate();
+        return options;
     }
 
     private static void AddRows(IIndex<int> index, ReadOnlySpan<float> vectors, int count, int dimension)

@@ -14,4 +14,19 @@ public enum VectorIndexAlgorithm : byte
     /// HNSW 图索引。
     /// </summary>
     Hnsw = 1,
+
+    /// <summary>
+    /// IVF-Flat 倒排文件索引。
+    /// </summary>
+    IvfFlat = 2,
+
+    /// <summary>
+    /// IVF-PQ 倒排文件 + 乘积量化索引。
+    /// </summary>
+    IvfPq = 3,
+
+    /// <summary>
+    /// Vamana / DiskANN 单层图索引。
+    /// </summary>
+    Vamana = 4,
 }

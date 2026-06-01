@@ -99,6 +99,62 @@ public sealed class LocalVectorIndexBuilderTests
     }
 
     [Fact]
+    public void Build_IvfFlatIndex_SearchesContinuousPayload()
+    {
+        var vectors = CreateClusteredVectors(count: 80, dimension: 4);
+        using var reader = LocalVectorIndexBuilder.Instance.Build(new VectorIndexBuildInput(
+            VectorIndexAlgorithm.IvfFlat,
+            KnnMetric.L2,
+            vectors,
+            Count: 80,
+            Dimension: 4,
+            Ivf: new VectorIndexIvfOptions(NList: 8, NProbe: 8, MaxIterations: 10, Seed: 11)));
+
+        var results = reader.Search(new VectorSearchRequest(new[] { 0f, 0f, 0f, 0f }, TopK: 3, KnnMetric.L2));
+
+        Assert.Equal(3, results.Count);
+        Assert.True(results[0].Distance <= results[1].Distance);
+        Assert.True(results[1].Distance <= results[2].Distance);
+    }
+
+    [Fact]
+    public void Build_IvfPqIndex_SearchesQuantizedPayload()
+    {
+        var vectors = CreateClusteredVectors(count: 300, dimension: 8);
+        using var reader = LocalVectorIndexBuilder.Instance.Build(new VectorIndexBuildInput(
+            VectorIndexAlgorithm.IvfPq,
+            KnnMetric.L2,
+            vectors,
+            Count: 300,
+            Dimension: 8,
+            IvfPq: new VectorIndexIvfPqOptions(NList: 12, NProbe: 12, MaxIterations: 10, M: 4, NBits: 8, Seed: 13)));
+
+        var results = reader.Search(new VectorSearchRequest(new[] { 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f }, TopK: 5, KnnMetric.L2));
+
+        Assert.Equal(5, results.Count);
+        Assert.True(results[0].Distance <= results[1].Distance);
+    }
+
+    [Fact]
+    public void Build_VamanaIndex_SearchesContinuousPayload()
+    {
+        var vectors = CreateClusteredVectors(count: 80, dimension: 4);
+        using var reader = LocalVectorIndexBuilder.Instance.Build(new VectorIndexBuildInput(
+            VectorIndexAlgorithm.Vamana,
+            KnnMetric.L2,
+            vectors,
+            Count: 80,
+            Dimension: 4,
+            Vamana: new VectorIndexVamanaOptions(MaxDegree: 8, SearchListSize: 16, Alpha: 1.2f, BeamWidth: 4, Seed: 17)));
+
+        var results = reader.Search(new VectorSearchRequest(new[] { 0f, 0f, 0f, 0f }, TopK: 3, KnnMetric.L2));
+
+        Assert.Equal(3, results.Count);
+        Assert.True(results[0].Distance <= results[1].Distance);
+        Assert.True(results[1].Distance <= results[2].Distance);
+    }
+
+    [Fact]
     public void Build_InvalidPayloadLength_Throws()
     {
         Assert.Throws<ArgumentException>(() => LocalVectorIndexBuilder.Instance.Build(new VectorIndexBuildInput(
@@ -121,5 +177,18 @@ public sealed class LocalVectorIndexBuilderTests
 
         Assert.Throws<ArgumentException>(() =>
             reader.Search(new VectorSearchRequest(new float[] { 1f, 0f }, TopK: 1, KnnMetric.L2)));
+    }
+
+    private static float[] CreateClusteredVectors(int count, int dimension)
+    {
+        var vectors = new float[count * dimension];
+        for (int row = 0; row < count; row++)
+        {
+            float cluster = row < count / 2 ? 0f : 10f;
+            for (int col = 0; col < dimension; col++)
+                vectors[(row * dimension) + col] = cluster + ((row % 7) * 0.01f) + (col * 0.001f);
+        }
+
+        return vectors;
     }
 }

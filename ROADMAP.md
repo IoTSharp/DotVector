@@ -579,13 +579,13 @@ my-database.dvec/
   - ✅ 新增 `DotVectorDbContext` / `DotVectorSet<TEntity>`，自动发现集合属性并绑定到 `VectorDatabase`。
   - ✅ 支持一个实体多个向量字段，每个字段可配置维度、Metric、IndexKind 与索引参数。
   - ✅ 元数据访问器预编译，避免热路径反射；AOT 下提供显式 schema registration 兜底。
-- **M16.2 便捷查询 API**
-  - `SearchTop1`、`SearchByThreshold`、`Upsert`、`Find` / `Get` 便捷方法。
-  - 多向量字段查询可通过 selector 或字段名选择。
-  - 继续复用现有 `Filter` 与 VectorData LINQ 翻译器。
-- **M16.3 本地数据库生命周期管理**
-  - 增加本地数据库生命周期管理：`CreateDatabase`、`OpenDatabase`、`ListDatabases`、`CloseDatabase`、`DeleteDatabase`。
-  - 每个数据库实例对应一个独立 `DotVector.Core.VectorDatabase` 与一个 `.dvec/` 目录。
+- **M16.2 便捷查询 API** ✅ 已完成
+  - ✅ `SearchTop1`、`SearchByThreshold`、`Upsert`、`Find` / `Get` 便捷方法。
+  - ✅ 多向量字段查询可通过 selector 或字段名选择。
+  - ✅ 继续复用现有 `Filter` 与 VectorData LINQ 翻译器。
+- **M16.3 本地数据库生命周期管理** ✅ 已完成
+  - ✅ 增加本地数据库生命周期管理：`CreateDatabase`、`OpenDatabase`、`ListDatabases`、`CloseDatabase`、`DeleteDatabase`。
+  - ✅ 每个数据库实例对应一个独立 `DotVector.Core.VectorDatabase` 与一个 `.dvec/` 目录。
 - **M16.4 本地 CLI**
   - `DotVector.Cli` 增加 `database create/list/open/delete`、`collection list/create/delete` 和本地 search/debug 命令。
   - CLI 直接调用本地嵌入式 API，不连接 DotVector Server。

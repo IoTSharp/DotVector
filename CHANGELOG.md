@@ -8,6 +8,11 @@
 
 ### Added
 
+- PR #M16.3：新增本地数据库生命周期管理
+  - `LocalVectorDatabaseManager`：新增 `CreateDatabase`、`OpenDatabase`、`ListDatabases`、`CloseDatabase`、`DeleteDatabase`，按根目录管理多个命名 `.dvec/` 数据库
+  - 每个本地数据库名称对应独立 `.dvec/` 目录与独立 `DotVector.Core.VectorDatabase` 实例；同一管理器禁止重复打开同名数据库，删除前必须先关闭
+  - `tests/DotVector.Core.Tests/Persistence/LocalDatabaseLifecycleTests.cs`：覆盖创建、列表、关闭、重新打开、删除、目录隔离和非法名称校验
+
 - PR #M16.2：新增 Code-First 便捷查询 API
   - `DotVectorSet<TEntity>`：新增 `SearchTop1`、`SearchByThreshold`、`Upsert`、`Find` / `Get` 便捷方法，`Upsert` 对重复主键执行覆盖写入，`Find` 未命中返回 `null`，`Get` 未命中抛 `KeyNotFoundException`
   - 多向量字段查询支持 `vectorFieldName` 与 `Expression<Func<TEntity, object?>>` selector 两种选择方式；Attribute schema 会把 CLR 属性名映射到 `[DotVectorVector(Name=...)]` 的存储字段名，显式单向量 schema 支持 selector 兜底

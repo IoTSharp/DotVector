@@ -62,44 +62,44 @@ internal static class FilterCodec
         switch (tag)
         {
             case Tag.Eq:
-            {
-                string field = r.ReadString();
-                object? value = ReadValue(r);
-                return Filter.Eq(field, value);
-            }
+                {
+                    string field = r.ReadString();
+                    object? value = ReadValue(r);
+                    return Filter.Eq(field, value);
+                }
             case Tag.Ne:
-            {
-                string field = r.ReadString();
-                object? value = ReadValue(r);
-                return Filter.Ne(field, value);
-            }
+                {
+                    string field = r.ReadString();
+                    object? value = ReadValue(r);
+                    return Filter.Ne(field, value);
+                }
             case Tag.Range:
-            {
-                string field = r.ReadString();
-                object? min = ReadValue(r);
-                object? max = ReadValue(r);
-                bool minInc = r.ReadBoolean();
-                bool maxInc = r.ReadBoolean();
-                return Filter.Range(field, (IComparable?)min, (IComparable?)max, minInc, maxInc);
-            }
+                {
+                    string field = r.ReadString();
+                    object? min = ReadValue(r);
+                    object? max = ReadValue(r);
+                    bool minInc = r.ReadBoolean();
+                    bool maxInc = r.ReadBoolean();
+                    return Filter.Range(field, (IComparable?)min, (IComparable?)max, minInc, maxInc);
+                }
             case Tag.Exists:
                 return Filter.Exists(r.ReadString());
             case Tag.Missing:
                 return Filter.Missing(r.ReadString());
             case Tag.And:
-            {
-                int n = r.ReadByte();
-                var arr = new Filter[n];
-                for (int i = 0; i < n; i++) arr[i] = ReadFilter(r);
-                return Filter.And(arr);
-            }
+                {
+                    int n = r.ReadByte();
+                    var arr = new Filter[n];
+                    for (int i = 0; i < n; i++) arr[i] = ReadFilter(r);
+                    return Filter.And(arr);
+                }
             case Tag.Or:
-            {
-                int n = r.ReadByte();
-                var arr = new Filter[n];
-                for (int i = 0; i < n; i++) arr[i] = ReadFilter(r);
-                return Filter.Or(arr);
-            }
+                {
+                    int n = r.ReadByte();
+                    var arr = new Filter[n];
+                    for (int i = 0; i < n; i++) arr[i] = ReadFilter(r);
+                    return Filter.Or(arr);
+                }
             case Tag.Not:
                 return Filter.Not(ReadFilter(r));
             default:

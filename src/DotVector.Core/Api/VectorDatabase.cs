@@ -213,42 +213,42 @@ public sealed class VectorDatabase : IDisposable
             switch (record.Type)
             {
                 case WalRecordType.Insert:
-                {
-                    uint dim = reader.ReadUInt32();
-                    if ((int)dim != entry.Dimensions)
                     {
-                        throw new DotVectorException(
-                            $"WAL 记录维度 {dim} 与集合 '{entry.Name}' 的 {entry.Dimensions} 不一致。");
+                        uint dim = reader.ReadUInt32();
+                        if ((int)dim != entry.Dimensions)
+                        {
+                            throw new DotVectorException(
+                                $"WAL 记录维度 {dim} 与集合 '{entry.Name}' 的 {entry.Dimensions} 不一致。");
+                        }
+                        int byteCount = (int)dim * sizeof(float);
+                        ReadOnlySpan<byte> vecBytes = reader.ReadBytes(byteCount);
+                        float[] vector = new float[dim];
+                        for (int i = 0; i < dim; i++)
+                        {
+                            vector[i] = BinaryPrimitives.ReadSingleLittleEndian(
+                                vecBytes.Slice(i * sizeof(float), sizeof(float)));
+                        }
+                        collection.Insert(new VectorRecord<TKey>(key, vector));
+                        break;
                     }
-                    int byteCount = (int)dim * sizeof(float);
-                    ReadOnlySpan<byte> vecBytes = reader.ReadBytes(byteCount);
-                    float[] vector = new float[dim];
-                    for (int i = 0; i < dim; i++)
-                    {
-                        vector[i] = BinaryPrimitives.ReadSingleLittleEndian(
-                            vecBytes.Slice(i * sizeof(float), sizeof(float)));
-                    }
-                    collection.Insert(new VectorRecord<TKey>(key, vector));
-                    break;
-                }
                 case WalRecordType.Delete:
                     collection.Delete(key);
                     break;
                 case WalRecordType.SetPayload:
-                {
-                    uint payloadLen = reader.ReadUInt32();
-                    if (payloadLen == 0)
                     {
-                        collection.RestorePayload(key, null);
+                        uint payloadLen = reader.ReadUInt32();
+                        if (payloadLen == 0)
+                        {
+                            collection.RestorePayload(key, null);
+                        }
+                        else
+                        {
+                            ReadOnlySpan<byte> payloadBytes = reader.ReadBytes((int)payloadLen);
+                            Dictionary<string, object?> dict = PayloadCodec.Decode(payloadBytes);
+                            collection.RestorePayload(key, dict);
+                        }
+                        break;
                     }
-                    else
-                    {
-                        ReadOnlySpan<byte> payloadBytes = reader.ReadBytes((int)payloadLen);
-                        Dictionary<string, object?> dict = PayloadCodec.Decode(payloadBytes);
-                        collection.RestorePayload(key, dict);
-                    }
-                    break;
-                }
                 default:
                     throw new DotVectorException($"未知 WAL 记录类型：{record.Type}");
             }

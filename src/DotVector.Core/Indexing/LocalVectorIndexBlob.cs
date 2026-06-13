@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
-using DotVector.IO;
 using DotVector.Index.Hnsw;
+using DotVector.IO;
 using DotVector.Model;
 using DotVector.Primitives;
 

@@ -1,5 +1,5 @@
-using DotVector.Model;
 using DotVector.Api;
+using DotVector.Model;
 
 namespace DotVector.CodeFirst;
 

@@ -91,6 +91,10 @@ public sealed class VectorDatabase : IDisposable
         {
             LoadVamanaSegmentInto(collection, entry);
         }
+        else if (entry.IndexKind == IndexKind.Hnsw)
+        {
+            LoadHnswSegmentInto(collection, entry);
+        }
         // 2. 回放 manifest 之后的 WAL（不附加 sink，避免回写）
         ReplayWalInto(collection, entry, (long)manifest.LastCoveredWalSequence);
         // 3. 关联持久化与写入 sink
@@ -191,6 +195,71 @@ public sealed class VectorDatabase : IDisposable
         }
 
         // 减去 tombstone 计数得到逻辑活跃行数
+        int activeCount = n - tombstones.Count;
+        _persistent.NotifyRestoredRowCount(entry.CollectionId, activeCount);
+    }
+
+    private void LoadHnswSegmentInto<TKey>(Collection<TKey> collection, CatalogEntry entry) where TKey : notnull
+    {
+        if (_persistent is null) return;
+        string? segDir = _persistent.TryGetLatestSegmentDir(entry.CollectionId);
+        if (segDir is null) { return; }
+        string hnswPath = Path.Combine(segDir, "hnsw.bin");
+        if (!File.Exists(hnswPath)) { return; }
+
+        using SegmentReader<TKey> seg = SegmentReader<TKey>.Open(segDir);
+        if (seg.Header.VectorCount == 0) { return; }
+
+        int dim = entry.Dimensions;
+        int n = seg.Keys.Count;
+        float[] vectors = seg.ReadAllVectors();
+
+        HnswGraphIO.Read(
+            hnswPath,
+            out int hdrDim,
+            out Metric hdrMetric,
+            out HnswOptions options,
+            out int entryPoint,
+            out int entryLevel,
+            out int[] levels,
+            out int[][][] neighbors,
+            out HashSet<int> tombstones);
+
+        if (levels.Length != n)
+            throw new DotVectorException($"HNSW 图节点数 {levels.Length} 与 segment 向量数 {n} 不一致。");
+        if (hdrDim != dim)
+            throw new DotVectorException($"HNSW 图维度 {hdrDim} 与集合维度 {dim} 不一致。");
+        if (hdrMetric != entry.Metric)
+            throw new DotVectorException($"HNSW 图 metric {hdrMetric} 与集合 metric {entry.Metric} 不一致。");
+
+        var snapshot = new HnswIndexSnapshot<TKey>(
+            dim,
+            entry.Metric,
+            options,
+            vectors,
+            seg.Keys.ToArray(),
+            levels,
+            neighbors,
+            new List<int>(tombstones).ToArray(),
+            entryPoint,
+            entryLevel);
+        collection.RestoreHnswSnapshot(snapshot);
+
+        // 恢复 payload（与 Vamana 路径一致）
+        IReadOnlyList<byte[]?>? encodedPayloads = seg.EncodedPayloads;
+        if (encodedPayloads is not null)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                byte[]? enc = encodedPayloads[i];
+                if (enc is { Length: > 0 })
+                {
+                    Dictionary<string, object?> dict = PayloadCodec.Decode(enc);
+                    collection.RestorePayload(seg.Keys[i], dict);
+                }
+            }
+        }
+
         int activeCount = n - tombstones.Count;
         _persistent.NotifyRestoredRowCount(entry.CollectionId, activeCount);
     }

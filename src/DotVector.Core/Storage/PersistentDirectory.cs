@@ -476,6 +476,101 @@ internal sealed class PersistentDirectory : IDisposable
     }
 
     /// <summary>
+    /// 把 HNSW 索引的当前完整快照写入新 segment，并清掉本集合先前的 segment 目录。
+    /// 与 Vamana 一样采用全量快照策略（避免恢复时合并多 segment 图结构）。
+    /// </summary>
+    internal void FlushHnswCollection<TKey>(
+        Guid collectionId,
+        Api.Collection<TKey> collection,
+        Func<TKey, byte[]?>? encodedPayloadProvider = null) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+
+            CatalogEntry entry = _entries.FirstOrDefault(e => e.CollectionId == collectionId)
+                ?? throw new DotVectorException($"集合 {collectionId} 未在 catalog 中注册。");
+
+            // 1. 旋转 WAL
+            long closedSeq = _currentWalSeq;
+            long newSeq = closedSeq + 1;
+            EnsureWalWriter().Rotate(GetWalPath(newSeq));
+            _currentWalSeq = newSeq;
+
+            // 2. 全量快照
+            var snapshot = collection.SnapshotHnsw();
+            var keys = snapshot.Keys;
+            float[] vectors = snapshot.Vectors;
+
+            // 3. 选择新 segment 序号
+            CollectionManifest manifest = _manifests.TryGetValue(collectionId, out var m)
+                ? m
+                : CollectionManifestStore.Read(GetManifestPath(collectionId));
+            ulong segSeq = manifest.NextSegmentSequence == 0 ? 1UL : manifest.NextSegmentSequence;
+
+            // 4. 写 Segment（vectors.bin + keys.bin + payload.bin）
+            SegmentHeader header = new()
+            {
+                SequenceNumber = segSeq,
+                VectorCount = (uint)keys.Length,
+                Dimensions = (uint)entry.Dimensions,
+                Metric = (byte)entry.Metric,
+                CreatedAtUtcUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Reserved = default,
+            };
+            string segDir = GetSegmentDir(collectionId, (long)segSeq);
+            byte[]?[]? payloadsArr = null;
+            if (encodedPayloadProvider is not null && keys.Length > 0)
+            {
+                payloadsArr = new byte[]?[keys.Length];
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    payloadsArr[i] = encodedPayloadProvider(keys[i]);
+                }
+            }
+            SegmentWriter.Write(segDir, header, keys, vectors, payloadsArr);
+
+            // 5. 写 hnsw.bin
+            string hnswPath = Path.Combine(segDir, "hnsw.bin");
+            Index.Hnsw.HnswGraphIO.Write(
+                hnswPath,
+                entry.Dimensions,
+                entry.Metric,
+                snapshot.Options,
+                snapshot.EntryPoint,
+                snapshot.EntryLevel,
+                snapshot.Levels,
+                snapshot.Neighbors,
+                new HashSet<int>(snapshot.Tombstones));
+
+            // 6. 删除旧 Segment 目录（保留刚写入的）
+            string segsDir = GetSegmentsDir(collectionId);
+            string newSegName = Path.GetFileName(segDir);
+            foreach (string oldDir in Directory.EnumerateDirectories(segsDir, "seg-*"))
+            {
+                if (oldDir.EndsWith(".tmp", StringComparison.Ordinal)) { continue; }
+                if (string.Equals(Path.GetFileName(oldDir), newSegName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                try { Directory.Delete(oldDir, recursive: true); }
+                catch (IOException) { /* 占用时跳过 */ }
+            }
+
+            // 7. 更新 manifest（HNSW 全量快照，不维护增量 _flushedRows）
+            manifest.NextSegmentSequence = segSeq + 1;
+            manifest.LastCoveredWalSequence = (ulong)closedSeq;
+            CollectionManifestStore.Write(GetManifestPath(collectionId), manifest);
+            _manifests[collectionId] = manifest;
+            _flushedRows[collectionId] = keys.Length;
+
+            // 8. 尝试裁剪 WAL
+            TryTrimWal();
+        }
+    }
+
+    /// <summary>
     /// 把指定集合的所有 Segment 合并为一个新的 Segment（按 seq 顺序拼接）。
     /// 不影响 <see cref="CollectionManifest.LastCoveredWalSequence"/>。
     /// </summary>

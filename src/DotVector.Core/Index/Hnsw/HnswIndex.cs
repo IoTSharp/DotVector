@@ -353,23 +353,61 @@ public sealed class HnswIndex<TKey> : IIndex<TKey>, IDisposable
             snapshot.Metric,
             snapshot.Options,
             snapshot.Keys.Length);
-        index._vectors.AddRange(snapshot.Vectors);
-        index._keys.AddRange(snapshot.Keys);
+        index.PopulateFromSnapshot(snapshot);
+        return index;
+    }
+
+    /// <summary>
+    /// 在现有空实例上原地批量恢复一份快照。要求实例自构造起未做过 <see cref="Add"/>。
+    /// 用于持久化层加载时复用同一个 <see cref="Api.Collection{TKey}"/> 已经绑定的索引引用。
+    /// </summary>
+    internal void RestoreBulk(HnswIndexSnapshot<TKey> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ThrowIfDisposed();
+
+        _lock.EnterWriteLock();
+        try
+        {
+            if (_keys.Count != 0)
+                throw new InvalidOperationException("RestoreBulk 仅可在空 HnswIndex 上调用。");
+            if (snapshot.Dimensions != _dimensions)
+                throw new InvalidDataException(
+                    $"HNSW snapshot dimensions {snapshot.Dimensions} 与当前实例 {_dimensions} 不一致。");
+            if (snapshot.Metric != _metric)
+                throw new InvalidDataException(
+                    $"HNSW snapshot metric {snapshot.Metric} 与当前实例 {_metric} 不一致。");
+            if (snapshot.Keys.Length != snapshot.Levels.Length || snapshot.Keys.Length != snapshot.Neighbors.Length)
+                throw new InvalidDataException("HNSW snapshot row counts do not match.");
+            if (snapshot.Vectors.Length != checked(snapshot.Keys.Length * snapshot.Dimensions))
+                throw new InvalidDataException("HNSW snapshot vector length does not match metadata.");
+
+            PopulateFromSnapshot(snapshot);
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+    }
+
+    private void PopulateFromSnapshot(HnswIndexSnapshot<TKey> snapshot)
+    {
+        _vectors.AddRange(snapshot.Vectors);
+        _keys.AddRange(snapshot.Keys);
         for (int row = 0; row < snapshot.Keys.Length; row++)
-            index._keyToRow.Add(snapshot.Keys[row], row);
-        index._levels.AddRange(snapshot.Levels);
+            _keyToRow.Add(snapshot.Keys[row], row);
+        _levels.AddRange(snapshot.Levels);
         foreach (var rowLayers in snapshot.Neighbors)
         {
             var layers = new List<int>[rowLayers.Length];
             for (int layer = 0; layer < rowLayers.Length; layer++)
                 layers[layer] = new List<int>(rowLayers[layer]);
-            index._neighbors.Add(layers);
+            _neighbors.Add(layers);
         }
         foreach (int row in snapshot.Tombstones)
-            index._tombstones.Add(row);
-        index._entryPoint = snapshot.EntryPoint;
-        index._entryLevel = snapshot.EntryLevel;
-        return index;
+            _tombstones.Add(row);
+        _entryPoint = snapshot.EntryPoint;
+        _entryLevel = snapshot.EntryLevel;
     }
 
     // -------- internals --------

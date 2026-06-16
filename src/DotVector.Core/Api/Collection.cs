@@ -488,9 +488,13 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         {
             _persistent.FlushVamanaCollection(_collectionId, vamana, vamana.Options, EncodePayloadForKey);
         }
+        else if (_index is HnswIndex<TKey>)
+        {
+            _persistent.FlushHnswCollection(_collectionId, this, EncodePayloadForKey);
+        }
         else
         {
-            throw new NotSupportedException("Flush 当前仅支持 Flat / Vamana 索引；HNSW / IVF 持久化将在后续 Milestone 提供。");
+            throw new NotSupportedException("Flush 当前仅支持 Flat / Vamana / HNSW 索引；IVF 持久化将在后续 Milestone 提供。");
         }
     }
 
@@ -592,5 +596,30 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
             throw new InvalidOperationException("RestoreVamanaSnapshot 仅适用于 Vamana 索引。");
         }
         vamana.RestoreBulk(keys, vectors, entryPoint, neighbors, tombstones);
+    }
+
+    /// <summary>
+    /// 取当前 HNSW 索引的快照副本，用于持久化层全量落盘。
+    /// </summary>
+    internal HnswIndexSnapshot<TKey> SnapshotHnsw()
+    {
+        if (_index is not HnswIndex<TKey> hnsw)
+        {
+            throw new InvalidOperationException("SnapshotHnsw 仅适用于 HNSW 索引。");
+        }
+        return hnsw.CreateSnapshot();
+    }
+
+    /// <summary>
+    /// 用一份完整 HNSW 快照在开库时批量恢复内部状态。仅在索引为空、无并发写入时调用。
+    /// </summary>
+    internal void RestoreHnswSnapshot(HnswIndexSnapshot<TKey> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (_index is not HnswIndex<TKey> hnsw)
+        {
+            throw new InvalidOperationException("RestoreHnswSnapshot 仅适用于 HNSW 索引。");
+        }
+        hnsw.RestoreBulk(snapshot);
     }
 }

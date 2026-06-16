@@ -38,7 +38,7 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
     private readonly int _dimensions;
     private readonly Metric _metric;
     private readonly bool _largerBetter;
-    private readonly IvfPqOptions _options;
+    private IvfPqOptions _options;
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
     private readonly List<TKey> _keys;
@@ -386,6 +386,114 @@ public sealed class IvfPqIndex<TKey> : IIndex<TKey>, IDisposable
         // 故无需再次排序。
         _ = _largerBetter;
         return n;
+    }
+
+    /// <summary>
+    /// 取当前 IVF-PQ 索引的全量快照副本（含 centroids / inverted lists / PQ codebook / 编码字节）。
+    /// </summary>
+    internal IvfPqIndexSnapshot<TKey> CreateSnapshot()
+    {
+        ThrowIfDisposed();
+        _lock.EnterReadLock();
+        try
+        {
+            var keys = _keys.ToArray();
+            var rowToList = _rowToList.ToArray();
+            float[]? centroids = null;
+            int[][]? invertedLists = null;
+            byte[]? codes = null;
+            float[]? codebookCentroids = null;
+            if (_isTrained)
+            {
+                centroids = (float[])_centroids!.Clone();
+                invertedLists = new int[_options.NList][];
+                for (int i = 0; i < _options.NList; i++)
+                    invertedLists[i] = _invertedLists![i].ToArray();
+                codes = new byte[_rowCount * _options.M];
+                _codes.AsSpan(0, codes.Length).CopyTo(codes);
+                codebookCentroids = _codebook!.Centroids.ToArray();
+            }
+            return new IvfPqIndexSnapshot<TKey>(
+                _dimensions,
+                _metric,
+                _options,
+                _isTrained,
+                _rowCount,
+                keys,
+                rowToList,
+                centroids,
+                invertedLists,
+                codes,
+                codebookCentroids);
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// 用一份完整快照原地恢复当前空实例。仅在初始化阶段、无并发写入时调用。
+    /// </summary>
+    internal void RestoreBulk(IvfPqIndexSnapshot<TKey> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ThrowIfDisposed();
+        _lock.EnterWriteLock();
+        try
+        {
+            if (_keys.Count != 0)
+                throw new InvalidOperationException("RestoreBulk 仅可在空 IvfPqIndex 上调用。");
+            if (snapshot.Dimensions != _dimensions)
+                throw new InvalidDataException(
+                    $"IVF-PQ snapshot dimensions {snapshot.Dimensions} 与当前实例 {_dimensions} 不一致。");
+            if (snapshot.Metric != _metric)
+                throw new InvalidDataException(
+                    $"IVF-PQ snapshot metric {snapshot.Metric} 与当前实例 {_metric} 不一致。");
+            if (snapshot.Keys.Length != snapshot.RowToList.Length || snapshot.Keys.Length != snapshot.RowCount)
+                throw new InvalidDataException("IVF-PQ snapshot row counts do not match.");
+
+            // 采纳 snapshot 中的 options（catalog 不持久化 NList / NProbe / M / NBits / MaxIter / Seed）。
+            _options = snapshot.Options;
+
+            _keys.AddRange(snapshot.Keys);
+            for (int row = 0; row < snapshot.Keys.Length; row++)
+                _keyToRow.Add(snapshot.Keys[row], row);
+            _rowToList.AddRange(snapshot.RowToList);
+            _rowCount = snapshot.RowCount;
+
+            if (snapshot.IsTrained)
+            {
+                if (snapshot.Centroids is null || snapshot.InvertedLists is null
+                    || snapshot.Codes is null || snapshot.CodebookCentroids is null)
+                {
+                    throw new InvalidDataException("IVF-PQ snapshot 声明已训练但缺少 centroids / inverted lists / codes / codebook。");
+                }
+                if (snapshot.Centroids.Length != checked(_options.NList * _dimensions))
+                    throw new InvalidDataException("IVF-PQ centroids 长度与 NList × Dimensions 不一致。");
+                if (snapshot.InvertedLists.Length != _options.NList)
+                    throw new InvalidDataException("IVF-PQ inverted lists 数量与 NList 不一致。");
+                if (snapshot.Codes.Length != checked(_rowCount * _options.M))
+                    throw new InvalidDataException("IVF-PQ codes 长度与 rowCount × M 不一致。");
+
+                _centroids = (float[])snapshot.Centroids.Clone();
+                _invertedLists = new List<int>[_options.NList];
+                for (int i = 0; i < _options.NList; i++)
+                    _invertedLists[i] = new List<int>(snapshot.InvertedLists[i]);
+                EnsureCodeCapacity(_rowCount);
+                snapshot.Codes.AsSpan().CopyTo(_codes.AsSpan(0, snapshot.Codes.Length));
+
+                var codebook = new PqCodebook(_dimensions, _options.M);
+                codebook.LoadCentroids(snapshot.CodebookCentroids);
+                _codebook = codebook;
+                _pq = new ProductQuantizer(codebook);
+                _isTrained = true;
+            }
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
     }
 
     private void TrainCore()

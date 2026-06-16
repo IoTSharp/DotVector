@@ -95,6 +95,14 @@ public sealed class VectorDatabase : IDisposable
         {
             LoadHnswSegmentInto(collection, entry);
         }
+        else if (entry.IndexKind == IndexKind.IvfFlat)
+        {
+            LoadIvfFlatSegmentInto(collection, entry);
+        }
+        else if (entry.IndexKind == IndexKind.IvfPq)
+        {
+            LoadIvfPqSegmentInto(collection, entry);
+        }
         // 2. 回放 manifest 之后的 WAL（不附加 sink，避免回写）
         ReplayWalInto(collection, entry, (long)manifest.LastCoveredWalSequence);
         // 3. 关联持久化与写入 sink
@@ -262,6 +270,89 @@ public sealed class VectorDatabase : IDisposable
 
         int activeCount = n - tombstones.Count;
         _persistent.NotifyRestoredRowCount(entry.CollectionId, activeCount);
+    }
+
+    private void LoadIvfFlatSegmentInto<TKey>(Collection<TKey> collection, CatalogEntry entry) where TKey : notnull
+    {
+        if (_persistent is null) return;
+        string? segDir = _persistent.TryGetLatestSegmentDir(entry.CollectionId);
+        if (segDir is null) return;
+        string ivfPath = Path.Combine(segDir, "ivfflat.bin");
+        if (!File.Exists(ivfPath)) return;
+
+        using SegmentReader<TKey> seg = SegmentReader<TKey>.Open(segDir);
+        if (seg.Header.VectorCount == 0) return;
+
+        int dim = entry.Dimensions;
+        int n = seg.Keys.Count;
+        float[] vectors = seg.ReadAllVectors();
+
+        Index.Ivf.IvfFlatGraphIO.Read(
+            ivfPath,
+            out int hdrDim, out Metric hdrMetric, out Index.Ivf.IvfOptions options,
+            out bool isTrained, out int rowCount,
+            out int[] rowToList, out float[]? centroids, out int[][]? invertedLists);
+
+        if (rowCount != n) throw new DotVectorException($"IVF-Flat 行数 {rowCount} 与 segment 向量数 {n} 不一致。");
+        if (hdrDim != dim) throw new DotVectorException($"IVF-Flat 维度 {hdrDim} 与集合维度 {dim} 不一致。");
+        if (hdrMetric != entry.Metric) throw new DotVectorException($"IVF-Flat metric {hdrMetric} 与集合 metric {entry.Metric} 不一致。");
+
+        var snapshot = new Index.Ivf.IvfFlatIndexSnapshot<TKey>(
+            dim, entry.Metric, options, isTrained,
+            vectors, seg.Keys.ToArray(), rowToList, centroids, invertedLists);
+        collection.RestoreIvfFlatSnapshot(snapshot);
+
+        RestorePayloadsFromSegment(collection, seg, n);
+        _persistent.NotifyRestoredRowCount(entry.CollectionId, n);
+    }
+
+    private void LoadIvfPqSegmentInto<TKey>(Collection<TKey> collection, CatalogEntry entry) where TKey : notnull
+    {
+        if (_persistent is null) return;
+        string? segDir = _persistent.TryGetLatestSegmentDir(entry.CollectionId);
+        if (segDir is null) return;
+        string ivfPath = Path.Combine(segDir, "ivfpq.bin");
+        if (!File.Exists(ivfPath)) return;
+
+        using SegmentReader<TKey> seg = SegmentReader<TKey>.Open(segDir);
+        if (seg.Header.VectorCount == 0) return;
+
+        int dim = entry.Dimensions;
+        int n = seg.Keys.Count;
+
+        Index.Ivf.IvfPqGraphIO.Read(
+            ivfPath,
+            out int hdrDim, out Metric hdrMetric, out Index.Ivf.IvfPqOptions options,
+            out bool isTrained, out int rowCount,
+            out int[] rowToList, out float[]? centroids, out int[][]? invertedLists,
+            out byte[]? codes, out float[]? codebookCentroids);
+
+        if (rowCount != n) throw new DotVectorException($"IVF-PQ 行数 {rowCount} 与 segment 向量数 {n} 不一致。");
+        if (hdrDim != dim) throw new DotVectorException($"IVF-PQ 维度 {hdrDim} 与集合维度 {dim} 不一致。");
+        if (hdrMetric != entry.Metric) throw new DotVectorException($"IVF-PQ metric {hdrMetric} 与集合 metric {entry.Metric} 不一致。");
+
+        var snapshot = new Index.Ivf.IvfPqIndexSnapshot<TKey>(
+            dim, entry.Metric, options, isTrained, rowCount,
+            seg.Keys.ToArray(), rowToList, centroids, invertedLists, codes, codebookCentroids);
+        collection.RestoreIvfPqSnapshot(snapshot);
+
+        RestorePayloadsFromSegment(collection, seg, n);
+        _persistent.NotifyRestoredRowCount(entry.CollectionId, n);
+    }
+
+    private static void RestorePayloadsFromSegment<TKey>(Collection<TKey> collection, SegmentReader<TKey> seg, int n) where TKey : notnull
+    {
+        IReadOnlyList<byte[]?>? encodedPayloads = seg.EncodedPayloads;
+        if (encodedPayloads is null) return;
+        for (int i = 0; i < n; i++)
+        {
+            byte[]? enc = encodedPayloads[i];
+            if (enc is { Length: > 0 })
+            {
+                Dictionary<string, object?> dict = PayloadCodec.Decode(enc);
+                collection.RestorePayload(seg.Keys[i], dict);
+            }
+        }
     }
 
     private void ReplayWalInto<TKey>(Collection<TKey> collection, CatalogEntry entry, long minWalSeqExclusive) where TKey : notnull

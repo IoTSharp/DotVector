@@ -570,6 +570,139 @@ internal sealed class PersistentDirectory : IDisposable
         }
     }
 
+    /// <summary>把 IVF-Flat 索引的当前完整快照写入新 segment，并清掉本集合先前的 segment 目录。</summary>
+    internal void FlushIvfFlatCollection<TKey>(
+        Guid collectionId,
+        Api.Collection<TKey> collection,
+        Func<TKey, byte[]?>? encodedPayloadProvider = null) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+            CatalogEntry entry = _entries.FirstOrDefault(e => e.CollectionId == collectionId)
+                ?? throw new DotVectorException($"集合 {collectionId} 未在 catalog 中注册。");
+
+            long closedSeq = _currentWalSeq;
+            long newSeq = closedSeq + 1;
+            EnsureWalWriter().Rotate(GetWalPath(newSeq));
+            _currentWalSeq = newSeq;
+
+            var snapshot = collection.SnapshotIvfFlat();
+
+            CollectionManifest manifest = _manifests.TryGetValue(collectionId, out var m)
+                ? m
+                : CollectionManifestStore.Read(GetManifestPath(collectionId));
+            ulong segSeq = manifest.NextSegmentSequence == 0 ? 1UL : manifest.NextSegmentSequence;
+
+            SegmentHeader header = new()
+            {
+                SequenceNumber = segSeq,
+                VectorCount = (uint)snapshot.Keys.Length,
+                Dimensions = (uint)entry.Dimensions,
+                Metric = (byte)entry.Metric,
+                CreatedAtUtcUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Reserved = default,
+            };
+            string segDir = GetSegmentDir(collectionId, (long)segSeq);
+            byte[]?[]? payloadsArr = null;
+            if (encodedPayloadProvider is not null && snapshot.Keys.Length > 0)
+            {
+                payloadsArr = new byte[]?[snapshot.Keys.Length];
+                for (int i = 0; i < snapshot.Keys.Length; i++)
+                    payloadsArr[i] = encodedPayloadProvider(snapshot.Keys[i]);
+            }
+            SegmentWriter.Write(segDir, header, snapshot.Keys, snapshot.Vectors, payloadsArr);
+
+            Index.Ivf.IvfFlatGraphIO.Write(Path.Combine(segDir, "ivfflat.bin"), snapshot);
+
+            DeleteSiblingSegmentDirsLocked(collectionId, segDir);
+
+            manifest.NextSegmentSequence = segSeq + 1;
+            manifest.LastCoveredWalSequence = (ulong)closedSeq;
+            CollectionManifestStore.Write(GetManifestPath(collectionId), manifest);
+            _manifests[collectionId] = manifest;
+            _flushedRows[collectionId] = snapshot.Keys.Length;
+
+            TryTrimWal();
+        }
+    }
+
+    /// <summary>把 IVF-PQ 索引的当前完整快照写入新 segment，并清掉本集合先前的 segment 目录。</summary>
+    internal void FlushIvfPqCollection<TKey>(
+        Guid collectionId,
+        Api.Collection<TKey> collection,
+        Func<TKey, byte[]?>? encodedPayloadProvider = null) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+            CatalogEntry entry = _entries.FirstOrDefault(e => e.CollectionId == collectionId)
+                ?? throw new DotVectorException($"集合 {collectionId} 未在 catalog 中注册。");
+
+            long closedSeq = _currentWalSeq;
+            long newSeq = closedSeq + 1;
+            EnsureWalWriter().Rotate(GetWalPath(newSeq));
+            _currentWalSeq = newSeq;
+
+            var snapshot = collection.SnapshotIvfPq();
+
+            CollectionManifest manifest = _manifests.TryGetValue(collectionId, out var m)
+                ? m
+                : CollectionManifestStore.Read(GetManifestPath(collectionId));
+            ulong segSeq = manifest.NextSegmentSequence == 0 ? 1UL : manifest.NextSegmentSequence;
+
+            // IVF-PQ 只写 keys / payload；原始向量不保留（PQ 编码替代）。
+            // 用零长度 vectors 占位，SegmentWriter 仍写 vectors.bin（空文件）以保持目录结构一致。
+            float[] emptyVectors = Array.Empty<float>();
+            SegmentHeader header = new()
+            {
+                SequenceNumber = segSeq,
+                VectorCount = (uint)snapshot.Keys.Length,
+                Dimensions = (uint)entry.Dimensions,
+                Metric = (byte)entry.Metric,
+                CreatedAtUtcUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Reserved = default,
+            };
+            string segDir = GetSegmentDir(collectionId, (long)segSeq);
+            byte[]?[]? payloadsArr = null;
+            if (encodedPayloadProvider is not null && snapshot.Keys.Length > 0)
+            {
+                payloadsArr = new byte[]?[snapshot.Keys.Length];
+                for (int i = 0; i < snapshot.Keys.Length; i++)
+                    payloadsArr[i] = encodedPayloadProvider(snapshot.Keys[i]);
+            }
+            SegmentWriter.Write(segDir, header, snapshot.Keys, emptyVectors, payloadsArr);
+
+            Index.Ivf.IvfPqGraphIO.Write(Path.Combine(segDir, "ivfpq.bin"), snapshot);
+
+            DeleteSiblingSegmentDirsLocked(collectionId, segDir);
+
+            manifest.NextSegmentSequence = segSeq + 1;
+            manifest.LastCoveredWalSequence = (ulong)closedSeq;
+            CollectionManifestStore.Write(GetManifestPath(collectionId), manifest);
+            _manifests[collectionId] = manifest;
+            _flushedRows[collectionId] = snapshot.Keys.Length;
+
+            TryTrimWal();
+        }
+    }
+
+    /// <summary>删除该集合下除 <paramref name="keepSegDir"/> 外的所有 seg-* 目录（容忍占用失败）。</summary>
+    private void DeleteSiblingSegmentDirsLocked(Guid collectionId, string keepSegDir)
+    {
+        string segsDir = GetSegmentsDir(collectionId);
+        string keepName = Path.GetFileName(keepSegDir);
+        foreach (string oldDir in Directory.EnumerateDirectories(segsDir, "seg-*"))
+        {
+            if (oldDir.EndsWith(".tmp", StringComparison.Ordinal)) continue;
+            if (string.Equals(Path.GetFileName(oldDir), keepName, StringComparison.Ordinal)) continue;
+            try { Directory.Delete(oldDir, recursive: true); }
+            catch (IOException) { /* 占用时跳过 */ }
+        }
+    }
+
     /// <summary>
     /// 把指定集合的所有 Segment 合并为一个新的 Segment（按 seq 顺序拼接）。
     /// 不影响 <see cref="CollectionManifest.LastCoveredWalSequence"/>。

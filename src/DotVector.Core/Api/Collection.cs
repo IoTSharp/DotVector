@@ -492,9 +492,17 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
         {
             _persistent.FlushHnswCollection(_collectionId, this, EncodePayloadForKey);
         }
+        else if (_index is IvfFlatIndex<TKey>)
+        {
+            _persistent.FlushIvfFlatCollection(_collectionId, this, EncodePayloadForKey);
+        }
+        else if (_index is IvfPqIndex<TKey>)
+        {
+            _persistent.FlushIvfPqCollection(_collectionId, this, EncodePayloadForKey);
+        }
         else
         {
-            throw new NotSupportedException("Flush 当前仅支持 Flat / Vamana / HNSW 索引；IVF 持久化将在后续 Milestone 提供。");
+            throw new NotSupportedException("Flush 当前仅支持 Flat / Vamana / HNSW / IVF-Flat / IVF-PQ 索引。");
         }
     }
 
@@ -621,5 +629,39 @@ public sealed class Collection<TKey> : IDisposable, IPersistableCollection
             throw new InvalidOperationException("RestoreHnswSnapshot 仅适用于 HNSW 索引。");
         }
         hnsw.RestoreBulk(snapshot);
+    }
+
+    /// <summary>取当前 IVF-Flat 索引的快照副本，用于持久化层全量落盘。</summary>
+    internal IvfFlatIndexSnapshot<TKey> SnapshotIvfFlat()
+    {
+        if (_index is not IvfFlatIndex<TKey> ivf)
+            throw new InvalidOperationException("SnapshotIvfFlat 仅适用于 IVF-Flat 索引。");
+        return ivf.CreateSnapshot();
+    }
+
+    /// <summary>用一份完整 IVF-Flat 快照原地恢复内部状态。仅在索引为空时调用。</summary>
+    internal void RestoreIvfFlatSnapshot(IvfFlatIndexSnapshot<TKey> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (_index is not IvfFlatIndex<TKey> ivf)
+            throw new InvalidOperationException("RestoreIvfFlatSnapshot 仅适用于 IVF-Flat 索引。");
+        ivf.RestoreBulk(snapshot);
+    }
+
+    /// <summary>取当前 IVF-PQ 索引的快照副本（含 codebook / codes），用于持久化层全量落盘。</summary>
+    internal IvfPqIndexSnapshot<TKey> SnapshotIvfPq()
+    {
+        if (_index is not IvfPqIndex<TKey> ivf)
+            throw new InvalidOperationException("SnapshotIvfPq 仅适用于 IVF-PQ 索引。");
+        return ivf.CreateSnapshot();
+    }
+
+    /// <summary>用一份完整 IVF-PQ 快照原地恢复内部状态。仅在索引为空时调用。</summary>
+    internal void RestoreIvfPqSnapshot(IvfPqIndexSnapshot<TKey> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (_index is not IvfPqIndex<TKey> ivf)
+            throw new InvalidOperationException("RestoreIvfPqSnapshot 仅适用于 IVF-PQ 索引。");
+        ivf.RestoreBulk(snapshot);
     }
 }

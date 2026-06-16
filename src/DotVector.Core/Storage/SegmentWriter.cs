@@ -83,7 +83,10 @@ internal static class SegmentWriter
                 $"键数量 {keys.Count} 与头部 VectorCount {header.VectorCount} 不一致。");
         }
         long expectedFloats = (long)header.VectorCount * header.Dimensions;
-        if (vectors.Length != expectedFloats)
+        // 允许 vectors.Length == 0 的特例：IVF-PQ 等量化索引在写入 segment 时已经丢掉了原始向量，
+        // 只保留 PQ 编码（在自己的 sidecar 文件里）。其它索引（Flat / HNSW / Vamana / IVF-Flat）
+        // 仍然要求 vectors 长度与头部声明一致——它们的 Load 路径会调用 ReadAllVectors 重建。
+        if (vectors.Length != 0 && vectors.Length != expectedFloats)
         {
             throw new DotVectorException(
                 $"向量字节数 {vectors.Length} 不等于预期 {expectedFloats}。");

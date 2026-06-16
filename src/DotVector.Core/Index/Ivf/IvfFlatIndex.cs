@@ -33,7 +33,8 @@ public sealed class IvfFlatIndex<TKey> : IIndex<TKey>, IDisposable
     private readonly int _dimensions;
     private readonly Metric _metric;
     private readonly bool _largerBetter;
-    private readonly IvfOptions _options;
+    // 用 init-once 语义：构造时来自调用方；RestoreBulk 可以一次性覆盖为 snapshot.Options。
+    private IvfOptions _options;
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
     private readonly List<float> _vectors;
@@ -325,6 +326,98 @@ public sealed class IvfFlatIndex<TKey> : IIndex<TKey>, IDisposable
             results[i] = (_keys[row], ComputeScore(query, storage.Slice(row * _dimensions, _dimensions)));
         }
         return n;
+    }
+
+    /// <summary>
+    /// 取当前 IVF-Flat 索引的快照副本，用于持久化层全量落盘。
+    /// </summary>
+    internal IvfFlatIndexSnapshot<TKey> CreateSnapshot()
+    {
+        ThrowIfDisposed();
+        _lock.EnterReadLock();
+        try
+        {
+            var vectors = CollectionsMarshal.AsSpan(_vectors).ToArray();
+            var keys = _keys.ToArray();
+            var rowToList = _rowToList.ToArray();
+            float[]? centroids = null;
+            int[][]? invertedLists = null;
+            if (_isTrained)
+            {
+                centroids = (float[])_centroids!.Clone();
+                invertedLists = new int[_options.NList][];
+                for (int i = 0; i < _options.NList; i++)
+                    invertedLists[i] = _invertedLists![i].ToArray();
+            }
+            return new IvfFlatIndexSnapshot<TKey>(
+                _dimensions,
+                _metric,
+                _options,
+                _isTrained,
+                vectors,
+                keys,
+                rowToList,
+                centroids,
+                invertedLists);
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// 用一份完整快照原地恢复当前空实例。仅在初始化阶段、无并发写入时调用。
+    /// </summary>
+    internal void RestoreBulk(IvfFlatIndexSnapshot<TKey> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ThrowIfDisposed();
+        _lock.EnterWriteLock();
+        try
+        {
+            if (_keys.Count != 0)
+                throw new InvalidOperationException("RestoreBulk 仅可在空 IvfFlatIndex 上调用。");
+            if (snapshot.Dimensions != _dimensions)
+                throw new InvalidDataException(
+                    $"IVF-Flat snapshot dimensions {snapshot.Dimensions} 与当前实例 {_dimensions} 不一致。");
+            if (snapshot.Metric != _metric)
+                throw new InvalidDataException(
+                    $"IVF-Flat snapshot metric {snapshot.Metric} 与当前实例 {_metric} 不一致。");
+            if (snapshot.Keys.Length != snapshot.RowToList.Length)
+                throw new InvalidDataException("IVF-Flat snapshot row counts do not match.");
+            if (snapshot.Vectors.Length != checked(snapshot.Keys.Length * snapshot.Dimensions))
+                throw new InvalidDataException("IVF-Flat snapshot vector length does not match metadata.");
+
+            // 采纳 snapshot 中的 options——构造时调用方未必能从 catalog 拿到原始 options
+            // （catalog 只持久化 IndexKind / Dim / Metric），所以这里以 snapshot 为准。
+            _options = snapshot.Options;
+
+            _vectors.AddRange(snapshot.Vectors);
+            _keys.AddRange(snapshot.Keys);
+            for (int row = 0; row < snapshot.Keys.Length; row++)
+                _keyToRow.Add(snapshot.Keys[row], row);
+            _rowToList.AddRange(snapshot.RowToList);
+
+            if (snapshot.IsTrained)
+            {
+                if (snapshot.Centroids is null || snapshot.InvertedLists is null)
+                    throw new InvalidDataException("IVF-Flat snapshot 声明已训练但缺少 centroids 或 inverted lists。");
+                if (snapshot.Centroids.Length != checked(_options.NList * _dimensions))
+                    throw new InvalidDataException("IVF-Flat centroids 长度与 NList × Dimensions 不一致。");
+                if (snapshot.InvertedLists.Length != _options.NList)
+                    throw new InvalidDataException("IVF-Flat inverted lists 数量与 NList 不一致。");
+                _centroids = (float[])snapshot.Centroids.Clone();
+                _invertedLists = new List<int>[_options.NList];
+                for (int i = 0; i < _options.NList; i++)
+                    _invertedLists[i] = new List<int>(snapshot.InvertedLists[i]);
+                _isTrained = true;
+            }
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
     }
 
     private void TrainCore()

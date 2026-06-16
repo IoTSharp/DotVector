@@ -88,7 +88,9 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
         string vectorsPath = Path.Combine(segmentDirectory, "vectors.bin");
         FileInfo fi = new(vectorsPath);
         long expected = (long)header.VectorCount * header.Dimensions * sizeof(float);
-        if (fi.Length != expected)
+        // 量化索引（IVF-PQ）写 segment 时只保留 keys + payload + sidecar，vectors.bin 为空。
+        // 此情形保留 0 长度通过；其它索引 Load 路径调用 ReadAllVectors 时仍按 expected 校验。
+        if (fi.Length != 0 && fi.Length != expected)
         {
             throw new DotVectorException(
                 $"vectors.bin 长度 {fi.Length} 与预期 {expected} 不一致。");
@@ -134,9 +136,10 @@ internal sealed class SegmentReader<TKey> : IDisposable where TKey : notnull
 
         MemoryMappedFile mmf;
         MemoryMappedViewAccessor accessor;
-        if (expected == 0)
+        if (expected == 0 || fi.Length == 0)
         {
-            // 空 Segment：跳过 mmap
+            // 空 segment 或量化索引（IVF-PQ）：vectors.bin 为空，跳过 mmap，
+            // ReadAllVectors 会返回空数组；调用方负责不去读这条路径。
             return new SegmentReader<TKey>(header, keys, null!, null!, 0, encodedPayloads, quantizer);
         }
 

@@ -5,24 +5,24 @@
 
   <!-- Core：将来按需启用 -->
   <ItemGroup Label="Core">
-    <PackageVersion Include="System.Numerics.Tensors" Version="9.0.5" />
-    <PackageVersion Include="Microsoft.Extensions.AI" Version="9.5.0" />
-    <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="9.5.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="System.Numerics.Tensors" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.7.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
     <PackageVersion Include="ModelContextProtocol" Version="0.2.0-preview.3" />
   </ItemGroup>
 
   <!-- Test -->
   <ItemGroup Label="Test">
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.1" />
-    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
   </ItemGroup>
 
   <!-- Benchmark + 对照基准 -->
   <ItemGroup Label="Benchmark">
-    <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="Qdrant.Client" Version="1.13.0" />
     <PackageVersion Include="Milvus.Client" Version="2.2.3" />
     <PackageVersion Include="Pgvector" Version="0.3.0" />
